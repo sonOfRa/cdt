@@ -277,6 +277,13 @@ public class CdtActionConstants {
 	public static final String HIDE_METHOD= "org.eclipse.cdt.ui.actions.HideMethod"; //$NON-NLS-1$
 
 	/**
+	 * Refactor menu: name of standard Encapsulate Field global action
+	 * (value <code>"org.eclipse.cdt.ui.actions.EncapsulateField"</code>).
+	 * @since 5.9
+	 */
+	public static final String ENCAPSULATE_FIELD= "org.eclipse.cdt.ui.actions.EncapsulateField"; //$NON-NLS-1$
+	
+	/**
 	 * Refactor menu: name of standard Extract Constant global action
 	 * (value <code>"org.eclipse.cdt.ui.actions.ImplementMethod"</code>).
 	 */

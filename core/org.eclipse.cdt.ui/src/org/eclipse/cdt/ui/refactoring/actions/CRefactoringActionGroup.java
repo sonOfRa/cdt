@@ -118,6 +118,7 @@ public class CRefactoringActionGroup extends ActionGroup implements ISelectionCh
     private RefactoringAction fExtractFunctionAction;
 	private RefactoringAction fToggleFunctionAction;
     private RefactoringAction fHideMethodAction;
+    private RefactoringAction fEncapsulateFieldAction;
 	private IWorkbenchSite fSite;
 	private List<RefactoringAction> fAllActions= new ArrayList<RefactoringAction>();
 
@@ -170,6 +171,10 @@ public class CRefactoringActionGroup extends ActionGroup implements ISelectionCh
         fHideMethodAction = new HideMethodAction();
         fHideMethodAction.setActionDefinitionId(ICEditorActionDefinitionIds.HIDE_METHOD);
         fAllActions.add(fHideMethodAction);
+        
+        fEncapsulateFieldAction = new EncapsulateFieldAction();
+        fEncapsulateFieldAction.setActionDefinitionId(ICEditorActionDefinitionIds.ENCAPSULATE_FIELD);
+        fAllActions.add(fEncapsulateFieldAction);
 
 	}
 
@@ -210,6 +215,7 @@ public class CRefactoringActionGroup extends ActionGroup implements ISelectionCh
 		setActionHandler(actionBar, CdtActionConstants.EXTRACT_METHOD, fExtractFunctionAction);
 		setActionHandler(actionBar, CdtActionConstants.TOGGLE_FUNCTION, fToggleFunctionAction);
 		setActionHandler(actionBar, CdtActionConstants.HIDE_METHOD, fHideMethodAction);		
+		setActionHandler(actionBar, CdtActionConstants.ENCAPSULATE_FIELD, fEncapsulateFieldAction);	
 	}
 
 	private void setActionHandler(IActionBars actionBar, String id, RefactoringAction action) {
@@ -242,6 +248,7 @@ public class CRefactoringActionGroup extends ActionGroup implements ISelectionCh
 			addAction(refactorSubmenu, fExtractFunctionAction);
 			addAction(refactorSubmenu, fToggleFunctionAction);
 			addAction(refactorSubmenu, fHideMethodAction);
+			addAction(refactorSubmenu, fEncapsulateFieldAction);
 			refactorSubmenu.add(new Separator(GROUP_REORG2));
 			refactorSubmenu.add(new Separator(GROUP_TYPE));
 			refactorSubmenu.add(new Separator(GROUP_TYPE2));
