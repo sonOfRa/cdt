@@ -26,6 +26,8 @@ import org.eclipse.core.resources.IResource;
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.Path;
 import org.eclipse.jface.preference.IPreferenceStore;
+import org.eclipse.jface.text.Document;
+import org.eclipse.jface.text.IDocument;
 import org.eclipse.jface.text.TextSelection;
 import org.eclipse.ltk.core.refactoring.Change;
 import org.eclipse.ltk.core.refactoring.Refactoring;
@@ -36,10 +38,12 @@ import org.eclipse.ltk.core.refactoring.RefactoringStatus;
 import org.eclipse.ltk.core.refactoring.RefactoringStatusEntry;
 import org.eclipse.ltk.core.refactoring.history.RefactoringHistory;
 import org.eclipse.ltk.internal.core.refactoring.history.RefactoringHistoryService;
+import org.eclipse.text.edits.TextEdit;
 import org.osgi.framework.Bundle;
 
 import org.eclipse.cdt.core.CCorePlugin;
 import org.eclipse.cdt.core.dom.IPDOMManager;
+import org.eclipse.cdt.core.formatter.CodeFormatter;
 import org.eclipse.cdt.core.model.CoreModel;
 import org.eclipse.cdt.core.model.ICProject;
 import org.eclipse.cdt.core.model.ITranslationUnit;
@@ -50,6 +54,8 @@ import org.eclipse.cdt.core.testplugin.util.TestSourceReader;
 import org.eclipse.cdt.ui.CUIPlugin;
 import org.eclipse.cdt.ui.PreferenceConstants;
 import org.eclipse.cdt.ui.testplugin.CTestPlugin;
+
+import org.eclipse.cdt.internal.corext.util.CodeFormatterUtil;
 
 import org.eclipse.cdt.internal.ui.refactoring.CRefactoring;
 import org.eclipse.cdt.internal.ui.refactoring.CRefactoringContext;
@@ -384,6 +390,24 @@ public abstract class RefactoringTestBase extends BaseTestCase {
 			String actualSource = getFileContents(file);
 			expectedSource= expectedSource.replace("\r\n", "\n");
 			actualSource= actualSource.replace("\r\n", "\n");
+			assertEquals(expectedSource, actualSource);
+		}
+	}
+
+	protected void compareFilesNormalized() throws Exception {
+		for (TestSourceFile testFile : testFiles) {
+			IFile file = cproject.getProject().getFile(new Path(testFile.getExpectedName()));
+			String actualSource = getFileContents(file);
+			TextEdit formatActual = CodeFormatterUtil.format(CodeFormatter.K_TRANSLATION_UNIT, actualSource, 0, null, null);
+			IDocument actualDocument = new Document(actualSource);
+			formatActual.apply(actualDocument);
+			actualSource = actualDocument.get();
+
+			String expectedSource = testFile.getExpectedSource();
+			TextEdit formatExpected = CodeFormatterUtil.format(CodeFormatter.K_TRANSLATION_UNIT, expectedSource, 0, null, null);
+			IDocument expectedDocument = new Document(expectedSource);
+			formatExpected.apply(expectedDocument);
+			expectedSource = expectedDocument.get();
 			assertEquals(expectedSource, actualSource);
 		}
 	}
