@@ -16,7 +16,7 @@ package org.eclipse.cdt.ui.tests.refactoring;
 import junit.framework.Test;
 import junit.framework.TestSuite;
 
-import org.eclipse.cdt.ui.tests.refactoring.encapsulatefield.EncapsulateFieldRefactoringTest;
+import org.eclipse.cdt.ui.tests.refactoring.encapsulatefield.EncapsulateFieldRefactoringTestBase;
 import org.eclipse.cdt.ui.tests.refactoring.extractconstant.ExtractConstantRefactoringTest;
 import org.eclipse.cdt.ui.tests.refactoring.extractfunction.ExtractFunctionRefactoringTest;
 import org.eclipse.cdt.ui.tests.refactoring.extractlocalvariable.ExtractLocalVariableRefactoringTest;
@@ -45,7 +45,7 @@ public class RefactoringTestSuite extends TestSuite {
 		suite.addTest(ExtractLocalVariableRefactoringTest.suite());
 		suite.addTest(ToggleRefactoringTest.suite());
 		suite.addTest(IncludesTestSuite.suite());
-		suite.addTest(EncapsulateFieldRefactoringTest.suite());
+		suite.addTest(EncapsulateFieldRefactoringTestBase.suite());
 		return suite;
 	}
 }
