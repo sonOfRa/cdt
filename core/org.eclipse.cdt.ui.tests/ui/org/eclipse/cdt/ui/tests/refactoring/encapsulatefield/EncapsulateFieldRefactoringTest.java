@@ -1,16 +1,7 @@
 package org.eclipse.cdt.ui.tests.refactoring.encapsulatefield;
 
-import junit.framework.Test;
-
-import org.eclipse.ltk.core.refactoring.Refactoring;
-
-import org.eclipse.cdt.ui.tests.refactoring.RefactoringTestBase;
-
-import org.eclipse.cdt.internal.ui.refactoring.encapsulatefield.EncapsulateFieldRefactoring;
-
-public class EncapsulateFieldRefactoringTest extends RefactoringTestBase {
-
-	private EncapsulateFieldRefactoring refactoring;
+public class EncapsulateFieldRefactoringTest extends
+		EncapsulateFieldRefactoringTestBase {
 
 	public EncapsulateFieldRefactoringTest() {
 		super();
@@ -18,32 +9,6 @@ public class EncapsulateFieldRefactoringTest extends RefactoringTestBase {
 
 	public EncapsulateFieldRefactoringTest(String name) {
 		super(name);
-	}
-
-	public static Test suite() {
-		return suite(EncapsulateFieldRefactoringTest.class);
-	}
-
-	@Override
-	protected Refactoring createRefactoring() {
-		refactoring = new EncapsulateFieldRefactoring(
-				getSelectedTranslationUnit(), getSelection(), getCProject());
-		return refactoring;
-	}
-
-	/**
-	 * Compares files in a normalized manner.
-	 * 
-	 * This comparison is looser than the default
-	 * {@link RefactoringTestBase#assertRefactoringSuccess()}. This has the
-	 * advantage of formatting differences not influencing the outcome of the
-	 * result, as they should not be relevant to the correctness of the inserted
-	 * and changed code.
-	 */
-	@Override
-	protected void assertRefactoringSuccess() throws Exception {
-		executeRefactoring(true);
-		compareFilesNormalized();
 	}
 
 	// A.h
@@ -134,7 +99,7 @@ public class EncapsulateFieldRefactoringTest extends RefactoringTestBase {
 	// virtual ~A() {
 	// }
 	//
-	// int getFoo() {
+	// int getFoo() const {
 	// return foo;
 	// }
 	//
@@ -174,7 +139,7 @@ public class EncapsulateFieldRefactoringTest extends RefactoringTestBase {
 	//
 	// virtual ~A();
 	//
-	// inline int getFoo() {
+	// inline int getFoo() const {
 	// return foo;
 	// }
 	//
@@ -235,7 +200,7 @@ public class EncapsulateFieldRefactoringTest extends RefactoringTestBase {
 	//
 	// virtual ~A();
 	//
-	// inline int getFoo() {
+	// inline int getFoo() const {
 	// return foo;
 	// }
 	//
@@ -322,7 +287,7 @@ public class EncapsulateFieldRefactoringTest extends RefactoringTestBase {
 	//
 	// virtual ~A();
 	//
-	// inline int getFoo() {
+	// inline int getFoo() const {
 	// return foo;
 	// }
 	//
@@ -411,7 +376,7 @@ public class EncapsulateFieldRefactoringTest extends RefactoringTestBase {
 	//
 	// virtual ~A();
 	//
-	// inline int getFoo() {
+	// inline int getFoo() const {
 	// return foo;
 	// }
 	//
@@ -452,51 +417,573 @@ public class EncapsulateFieldRefactoringTest extends RefactoringTestBase {
 		assertRefactoringSuccess();
 	}
 
-	public void testEncapsulateFieldIncrement() throws Exception {
-		fail();
-	}
+	// A.h
+	// #ifndef A_H_
+	// #define A_H_
+	//
+	// class A {
+	// public:
+	// A();
+	//
+	// virtual ~A();
+	//
+	// /*$*/int foo;/*$$*/
+	// };
+	//
+	// #endif /*A_H_*/
+	// ====================
+	// #ifndef A_H_
+	// #define A_H_
+	//
+	// class A {
+	// public:
+	// A();
+	//
+	// virtual ~A();
+	//
+	// inline int getFoo() const {
+	// return foo;
+	// }
+	//
+	// inline void setFoo(int foo) {
+	// this->foo = foo;
+	// }
+	// private:
+	// int foo = 0;
+	// };
+	//
+	// #endif /*A_H_*/
 
-	public void testEncapsulateFieldDecrement() throws Exception {
-		fail();
-	}
-
+	// A.cpp
+	// #include "A.h"
+	// A::A() {
+	// foo += 2;
+	// }
+	//
+	// A::~A() {
+	// }
+	// ====================
+	// #include "A.h"
+	// A::A() {
+	// setFoo(getFoo() + 2);
+	// }
+	//
+	// A::~A() {
+	// }
 	public void testEncapsulateFieldAddAssign() throws Exception {
-		fail();
+		assertRefactoringSuccess();
 	}
 
+	// A.h
+	// #ifndef A_H_
+	// #define A_H_
+	//
+	// class A {
+	// public:
+	// A();
+	//
+	// virtual ~A();
+	//
+	// /*$*/int foo;/*$$*/
+	// };
+	//
+	// #endif /*A_H_*/
+	// ====================
+	// #ifndef A_H_
+	// #define A_H_
+	//
+	// class A {
+	// public:
+	// A();
+	//
+	// virtual ~A();
+	//
+	// inline int getFoo() const {
+	// return foo;
+	// }
+	//
+	// inline void setFoo(int foo) {
+	// this->foo = foo;
+	// }
+	// private:
+	// int foo = 0;
+	// };
+	//
+	// #endif /*A_H_*/
+
+	// A.cpp
+	// #include "A.h"
+	// A::A() {
+	// foo -= 2;
+	// }
+	//
+	// A::~A() {
+	// }
+	// ====================
+	// #include "A.h"
+	// A::A() {
+	// setFoo(getFoo() - 2);
+	// }
+	//
+	// A::~A() {
+	// }
 	public void testEncapsulateFieldSubtractAssign() throws Exception {
-		fail();
+		assertRefactoringSuccess();
 	}
 
+	// A.h
+	// #ifndef A_H_
+	// #define A_H_
+	//
+	// class A {
+	// public:
+	// A();
+	//
+	// virtual ~A();
+	//
+	// /*$*/int foo;/*$$*/
+	// };
+	//
+	// #endif /*A_H_*/
+	// ====================
+	// #ifndef A_H_
+	// #define A_H_
+	//
+	// class A {
+	// public:
+	// A();
+	//
+	// virtual ~A();
+	//
+	// inline int getFoo() const {
+	// return foo;
+	// }
+	//
+	// inline void setFoo(int foo) {
+	// this->foo = foo;
+	// }
+	// private:
+	// int foo = 0;
+	// };
+	//
+	// #endif /*A_H_*/
+
+	// A.cpp
+	// #include "A.h"
+	// A::A() {
+	// foo *= 2;
+	// }
+	//
+	// A::~A() {
+	// }
+	// ====================
+	// #include "A.h"
+	// A::A() {
+	// setFoo(getFoo() * 2);
+	// }
+	//
+	// A::~A() {
+	// }
 	public void testEncapsulateFieldMultAssign() throws Exception {
-		fail();
+		assertRefactoringSuccess();
 	}
 
+	// A.h
+	// #ifndef A_H_
+	// #define A_H_
+	//
+	// class A {
+	// public:
+	// A();
+	//
+	// virtual ~A();
+	//
+	// /*$*/int foo;/*$$*/
+	// };
+	//
+	// #endif /*A_H_*/
+	// ====================
+	// #ifndef A_H_
+	// #define A_H_
+	//
+	// class A {
+	// public:
+	// A();
+	//
+	// virtual ~A();
+	//
+	// inline int getFoo() const {
+	// return foo;
+	// }
+	//
+	// inline void setFoo(int foo) {
+	// this->foo = foo;
+	// }
+	// private:
+	// int foo = 0;
+	// };
+	//
+	// #endif /*A_H_*/
+
+	// A.cpp
+	// #include "A.h"
+	// A::A() {
+	// foo /= 2;
+	// }
+	//
+	// A::~A() {
+	// }
+	// ====================
+	// #include "A.h"
+	// A::A() {
+	// setFoo(getFoo() / 2);
+	// }
+	//
+	// A::~A() {
+	// }
 	public void testEncapsulateFieldDivAssign() throws Exception {
-		fail();
+		assertRefactoringSuccess();
 	}
 
+	// A.h
+	// #ifndef A_H_
+	// #define A_H_
+	//
+	// class A {
+	// public:
+	// A();
+	//
+	// virtual ~A();
+	//
+	// /*$*/int foo;/*$$*/
+	// };
+	//
+	// #endif /*A_H_*/
+	// ====================
+	// #ifndef A_H_
+	// #define A_H_
+	//
+	// class A {
+	// public:
+	// A();
+	//
+	// virtual ~A();
+	//
+	// inline int getFoo() const {
+	// return foo;
+	// }
+	//
+	// inline void setFoo(int foo) {
+	// this->foo = foo;
+	// }
+	// private:
+	// int foo = 0;
+	// };
+	//
+	// #endif /*A_H_*/
+
+	// A.cpp
+	// #include "A.h"
+	// A::A() {
+	// foo %= 2;
+	// }
+	//
+	// A::~A() {
+	// }
+	// ====================
+	// #include "A.h"
+	// A::A() {
+	// setFoo(getFoo() % 2);
+	// }
+	//
+	// A::~A() {
+	// }
 	public void testEncapsulateFieldModAssign() throws Exception {
-		fail();
+		assertRefactoringSuccess();
 	}
 
+	// A.h
+	// #ifndef A_H_
+	// #define A_H_
+	//
+	// class A {
+	// public:
+	// A();
+	//
+	// virtual ~A();
+	//
+	// /*$*/int foo;/*$$*/
+	// };
+	//
+	// #endif /*A_H_*/
+	// ====================
+	// #ifndef A_H_
+	// #define A_H_
+	//
+	// class A {
+	// public:
+	// A();
+	//
+	// virtual ~A();
+	//
+	// inline int getFoo() const {
+	// return foo;
+	// }
+	//
+	// inline void setFoo(int foo) {
+	// this->foo = foo;
+	// }
+	// private:
+	// int foo = 0;
+	// };
+	//
+	// #endif /*A_H_*/
+
+	// A.cpp
+	// #include "A.h"
+	// A::A() {
+	// foo &= 2;
+	// }
+	//
+	// A::~A() {
+	// }
+	// ====================
+	// #include "A.h"
+	// A::A() {
+	// setFoo(getFoo() & 2);
+	// }
+	//
+	// A::~A() {
+	// }
 	public void testEncapsulateFieldAndAssign() throws Exception {
-		fail();
+		assertRefactoringSuccess();
 	}
 
+	// A.h
+	// #ifndef A_H_
+	// #define A_H_
+	//
+	// class A {
+	// public:
+	// A();
+	//
+	// virtual ~A();
+	//
+	// /*$*/int foo;/*$$*/
+	// };
+	//
+	// #endif /*A_H_*/
+	// ====================
+	// #ifndef A_H_
+	// #define A_H_
+	//
+	// class A {
+	// public:
+	// A();
+	//
+	// virtual ~A();
+	//
+	// inline int getFoo() const {
+	// return foo;
+	// }
+	//
+	// inline void setFoo(int foo) {
+	// this->foo = foo;
+	// }
+	// private:
+	// int foo = 0;
+	// };
+	//
+	// #endif /*A_H_*/
+
+	// A.cpp
+	// #include "A.h"
+	// A::A() {
+	// foo |= 2;
+	// }
+	//
+	// A::~A() {
+	// }
+	// ====================
+	// #include "A.h"
+	// A::A() {
+	// setFoo(getFoo() | 2);
+	// }
+	//
+	// A::~A() {
+	// }
 	public void testEncapsulateFieldOrAssign() throws Exception {
-		fail();
+		assertRefactoringSuccess();
 	}
 
+	// A.h
+	// #ifndef A_H_
+	// #define A_H_
+	//
+	// class A {
+	// public:
+	// A();
+	//
+	// virtual ~A();
+	//
+	// /*$*/int foo;/*$$*/
+	// };
+	//
+	// #endif /*A_H_*/
+	// ====================
+	// #ifndef A_H_
+	// #define A_H_
+	//
+	// class A {
+	// public:
+	// A();
+	//
+	// virtual ~A();
+	//
+	// inline int getFoo() const {
+	// return foo;
+	// }
+	//
+	// inline void setFoo(int foo) {
+	// this->foo = foo;
+	// }
+	// private:
+	// int foo = 0;
+	// };
+	//
+	// #endif /*A_H_*/
+
+	// A.cpp
+	// #include "A.h"
+	// A::A() {
+	// foo ^= 2;
+	// }
+	//
+	// A::~A() {
+	// }
+	// ====================
+	// #include "A.h"
+	// A::A() {
+	// setFoo(getFoo() ^ 2);
+	// }
+	//
+	// A::~A() {
+	// }
 	public void testEncapsulateFieldXorAssign() throws Exception {
-		fail();
+		assertRefactoringSuccess();
 	}
 
+	// A.h
+	// #ifndef A_H_
+	// #define A_H_
+	//
+	// class A {
+	// public:
+	// A();
+	//
+	// virtual ~A();
+	//
+	// /*$*/int foo;/*$$*/
+	// };
+	//
+	// #endif /*A_H_*/
+	// ====================
+	// #ifndef A_H_
+	// #define A_H_
+	//
+	// class A {
+	// public:
+	// A();
+	//
+	// virtual ~A();
+	//
+	// inline int getFoo() const {
+	// return foo;
+	// }
+	//
+	// inline void setFoo(int foo) {
+	// this->foo = foo;
+	// }
+	// private:
+	// int foo = 0;
+	// };
+	//
+	// #endif /*A_H_*/
+
+	// A.cpp
+	// #include "A.h"
+	// A::A() {
+	// foo <<= 2;
+	// }
+	//
+	// A::~A() {
+	// }
+	// ====================
+	// #include "A.h"
+	// A::A() {
+	// setFoo(getFoo() << 2);
+	// }
+	//
+	// A::~A() {
+	// }
 	public void testEncapsulateFieldShiftLAssign() throws Exception {
-		fail();
+		assertRefactoringSuccess();
 	}
 
+	// A.h
+	// #ifndef A_H_
+	// #define A_H_
+	//
+	// class A {
+	// public:
+	// A();
+	//
+	// virtual ~A();
+	//
+	// /*$*/int foo;/*$$*/
+	// };
+	//
+	// #endif /*A_H_*/
+	// ====================
+	// #ifndef A_H_
+	// #define A_H_
+	//
+	// class A {
+	// public:
+	// A();
+	//
+	// virtual ~A();
+	//
+	// inline int getFoo() const {
+	// return foo;
+	// }
+	//
+	// inline void setFoo(int foo) {
+	// this->foo = foo;
+	// }
+	// private:
+	// int foo = 0;
+	// };
+	//
+	// #endif /*A_H_*/
+
+	// A.cpp
+	// #include "A.h"
+	// A::A() {
+	// foo >>= 2;
+	// }
+	//
+	// A::~A() {
+	// }
+	// ====================
+	// #include "A.h"
+	// A::A() {
+	// setFoo(getFoo() >> 2);
+	// }
+	//
+	// A::~A() {
+	// }
 	public void testEncapsulateFieldShiftRAssign() throws Exception {
-		fail();
+		assertRefactoringSuccess();
 	}
 }
