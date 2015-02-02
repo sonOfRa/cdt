@@ -7,6 +7,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import javax.swing.text.html.HTMLDocument.HTMLReader.IsindexAction;
+
 import org.eclipse.core.resources.IFile;
 import org.eclipse.core.resources.ResourcesPlugin;
 import org.eclipse.core.runtime.CoreException;
@@ -24,21 +26,31 @@ import org.eclipse.text.edits.TextEditGroup;
 import org.eclipse.cdt.core.CCorePlugin;
 import org.eclipse.cdt.core.dom.ast.ASTVisitor;
 import org.eclipse.cdt.core.dom.ast.IASTCompositeTypeSpecifier;
+import org.eclipse.cdt.core.dom.ast.IASTDeclSpecifier;
 import org.eclipse.cdt.core.dom.ast.IASTDeclaration;
 import org.eclipse.cdt.core.dom.ast.IASTDeclarator;
 import org.eclipse.cdt.core.dom.ast.IASTFieldReference;
 import org.eclipse.cdt.core.dom.ast.IASTFileLocation;
 import org.eclipse.cdt.core.dom.ast.IASTName;
 import org.eclipse.cdt.core.dom.ast.IASTNode;
+import org.eclipse.cdt.core.dom.ast.IASTSimpleDeclSpecifier;
 import org.eclipse.cdt.core.dom.ast.IASTSimpleDeclaration;
 import org.eclipse.cdt.core.dom.ast.IASTTranslationUnit;
+import org.eclipse.cdt.core.dom.ast.IBinding;
+import org.eclipse.cdt.core.dom.ast.IQualifierType;
+import org.eclipse.cdt.core.dom.ast.IType;
 import org.eclipse.cdt.core.dom.ast.cpp.ICPPASTCompositeTypeSpecifier;
 import org.eclipse.cdt.core.dom.ast.cpp.ICPPASTExpression;
 import org.eclipse.cdt.core.dom.ast.cpp.ICPPASTFieldReference;
 import org.eclipse.cdt.core.dom.ast.cpp.ICPPASTFunctionCallExpression;
 import org.eclipse.cdt.core.dom.ast.cpp.ICPPASTName;
+import org.eclipse.cdt.core.dom.ast.cpp.ICPPASTNamedTypeSpecifier;
 import org.eclipse.cdt.core.dom.ast.cpp.ICPPASTQualifiedName;
 import org.eclipse.cdt.core.dom.ast.cpp.ICPPASTVisibilityLabel;
+import org.eclipse.cdt.core.dom.ast.cpp.ICPPClassType;
+import org.eclipse.cdt.core.dom.ast.cpp.ICPPConstructor;
+import org.eclipse.cdt.core.dom.ast.cpp.ICPPParameter;
+import org.eclipse.cdt.core.dom.ast.cpp.ICPPReferenceType;
 import org.eclipse.cdt.core.dom.rewrite.ASTRewrite;
 import org.eclipse.cdt.core.index.IIndex;
 import org.eclipse.cdt.core.index.IIndexName;
@@ -69,7 +81,7 @@ import org.eclipse.cdt.internal.ui.refactoring.utils.VisibilityEnum;
 public class EncapsulateFieldRefactoring extends CRefactoring {
 
 	// TODO: Add test cases in org.eclipse.cdt.ui.tests.
-	
+
 	/**
 	 * This ID is used the Eclipse GUI.
 	 */
@@ -83,18 +95,21 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 	 * Field declaration whose references are to be replaced by setters/getters.
 	 */
 	private IASTDeclaration fieldDeclaration;
-	
+
 	public EncapsulateFieldRefactoring(ICElement element, ISelection selection, ICProject project) {
 		super(element, selection, project);
 	}
 
-	/* (non-Javadoc)
+	/*
+	 * (non-Javadoc)
+	 * 
 	 * @see org.eclipse.cdt.internal.ui.refactoring.CRefactoring#getRefactoringDescriptor()
 	 */
 	@Override
 	protected RefactoringDescriptor getRefactoringDescriptor() {
 		Map<String, String> arguments = getArgumentMap();
-		return new EncapsulateFieldRefactoringDescriptor(project.getProject().getName(), "Encapsulate Field Refactoring", "Encapsulate " + fieldName.getRawSignature(), arguments);  //$NON-NLS-1$//$NON-NLS-2$
+		return new EncapsulateFieldRefactoringDescriptor(project.getProject().getName(),
+				"Encapsulate Field Refactoring", "Encapsulate " + fieldName.getRawSignature(), arguments); //$NON-NLS-1$//$NON-NLS-2$
 	}
 
 	/**
@@ -105,70 +120,80 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 	private Map<String, String> getArgumentMap() {
 		Map<String, String> arguments = new HashMap<String, String>();
 		arguments.put(CRefactoringDescriptor.FILE_NAME, tu.getLocationURI().toString());
-		arguments.put(CRefactoringDescriptor.SELECTION, selectedRegion.getOffset() + "," + selectedRegion.getLength()); //$NON-NLS-1$
+		arguments.put(CRefactoringDescriptor.SELECTION,
+				selectedRegion.getOffset() + "," + selectedRegion.getLength()); //$NON-NLS-1$
 		return arguments;
 	}
-	
-	/* (non-Javadoc)
-	 * @see org.eclipse.cdt.internal.ui.refactoring.CRefactoring#checkFinalConditions(org.eclipse.core.runtime.IProgressMonitor, org.eclipse.ltk.core.refactoring.participants.CheckConditionsContext)
+
+	/*
+	 * (non-Javadoc)
+	 * 
+	 * @see
+	 * org.eclipse.cdt.internal.ui.refactoring.CRefactoring#checkFinalConditions(org.eclipse.core.runtime.
+	 * IProgressMonitor, org.eclipse.ltk.core.refactoring.participants.CheckConditionsContext)
 	 */
 	@Override
-	protected RefactoringStatus checkFinalConditions
-		(IProgressMonitor subProgressMonitor, 
-		CheckConditionsContext checkContext) throws CoreException, OperationCanceledException 
-	{
+	protected RefactoringStatus checkFinalConditions(IProgressMonitor subProgressMonitor,
+			CheckConditionsContext checkContext) throws CoreException, OperationCanceledException {
 		// FIXME: Maybe it is necessary to run checks as to whether refactoring is
 		// actually applicable.
 		return super.checkFinalConditions(subProgressMonitor, checkContext);
 	}
-	
-	/* (non-Javadoc)
-	 * @see org.eclipse.cdt.internal.ui.refactoring.CRefactoring#checkInitialConditions(org.eclipse.core.runtime.IProgressMonitor)
+
+	/*
+	 * (non-Javadoc)
 	 * 
-	 * The refactoring may be applicable if the selected code is a non-private field declaration
-	 * within a class.
+	 * @see
+	 * org.eclipse.cdt.internal.ui.refactoring.CRefactoring#checkInitialConditions(org.eclipse.core.runtime
+	 * .IProgressMonitor)
+	 * 
+	 * The refactoring may be applicable if the selected code is a non-private field declaration within a
+	 * class.
 	 * 
 	 * Copied and adjusted from HideMethodRefactoring.
 	 */
 	@Override
-	public RefactoringStatus checkInitialConditions(IProgressMonitor pm) throws CoreException, OperationCanceledException {
+	public RefactoringStatus checkInitialConditions(IProgressMonitor pm) throws CoreException,
+			OperationCanceledException {
 		SubMonitor sm = SubMonitor.convert(pm, 10);
 		try {
 			super.checkInitialConditions(sm.newChild(8));
-	
+
 			if (initStatus.hasFatalError()) {
 				return initStatus;
 			}
-	
+
 			if (isProgressMonitorCanceled(sm, initStatus))
 				return initStatus;
-	
+
 			List<IASTName> names = findAllMarkedNames();
 			if (names.isEmpty()) {
-				initStatus.addFatalError(Messages.EncapsulateFieldRefactoring_NoNameSelected);  
+				initStatus.addFatalError(Messages.EncapsulateFieldRefactoring_NoNameSelected);
 				return initStatus;
 			}
 			IASTName name = names.get(names.size() - 1);
 
 			fieldName = DefinitionFinder.getMemberDeclaration(name, refactoringContext, sm.newChild(1));
+
 			if (fieldName == null) {
-				initStatus.addFatalError(Messages.EncapsulateFieldRefactoring_NoFieldNameSelected); 
+				initStatus.addFatalError(Messages.EncapsulateFieldRefactoring_NoFieldNameSelected);
 				return initStatus;
 			}
 
 			IASTDeclarator decl = (IASTDeclarator) fieldName.getParent();
 			decl = CPPVisitor.findOutermostDeclarator(decl);
 			fieldDeclaration = (IASTDeclaration) decl.getParent();
+
 			// are we at the class-level?
-			if (fieldDeclaration == null ||
-					!(fieldDeclaration.getParent() instanceof ICPPASTCompositeTypeSpecifier)) {
-				initStatus.addFatalError(Messages.EncapsulateFieldRefactoring_CanOnlyEncapsulateFields); 
+			if (fieldDeclaration == null
+					|| !(fieldDeclaration.getParent() instanceof ICPPASTCompositeTypeSpecifier)) {
+				initStatus.addFatalError(Messages.EncapsulateFieldRefactoring_CanOnlyEncapsulateFields);
 				return initStatus;
 			}
-	
+
 			if (isProgressMonitorCanceled(sm, initStatus))
 				return initStatus;
-			
+
 			// field declarations are represented by IASTSimpleDecaration (CPPASTSimpleDeclaration,
 			// more precisely)
 			if (fieldDeclaration instanceof IASTSimpleDeclaration) {
@@ -177,23 +202,24 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 				for (IASTDeclarator declarator : ((IASTSimpleDeclaration) fieldDeclaration).getDeclarators()) {
 					if (declarator.getName().getRawSignature().equals(name.getRawSignature())) {
 						if (!(declarator instanceof IASTDeclarator)) {
-							initStatus.addFatalError(Messages.EncapsulateFieldRefactoring_CanOnlyEncapsulateFields); 
+							initStatus
+									.addFatalError(Messages.EncapsulateFieldRefactoring_CanOnlyEncapsulateFields);
 							return initStatus;
 						}
 					}
-				}			
+				}
 			} else {
-				initStatus.addFatalError(Messages.EncapsulateFieldRefactoring_CanOnlyEncapsulateFields); 
+				initStatus.addFatalError(Messages.EncapsulateFieldRefactoring_CanOnlyEncapsulateFields);
 				return initStatus;
 			}
-	
-			// the class containing this field 
-			IASTCompositeTypeSpecifier classNode =
-					CPPVisitor.findAncestorWithType(fieldName, IASTCompositeTypeSpecifier.class);
+
+			// the class containing this field
+			IASTCompositeTypeSpecifier classNode = CPPVisitor.findAncestorWithType(fieldName,
+					IASTCompositeTypeSpecifier.class);
 			if (classNode == null) {
 				initStatus.addError(Messages.EncapsulateFieldRefactoring_EnclosingClassNotFound);
 			}
-	
+
 			// is this field already private in that class?
 			if (checkIfPrivate(classNode, fieldDeclaration)) {
 				initStatus.addError(Messages.EncapsulateFieldRefactoring_IsAlreadyPrivate);
@@ -209,8 +235,10 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 	 * 
 	 * Copied and adjusted from HideMethodRefactoring.
 	 * 
-	 * @param classNode a class
-	 * @param decl a member declaration of this class
+	 * @param classNode
+	 *            a class
+	 * @param decl
+	 *            a member declaration of this class
 	 * @return true if given declaration is a private declaration in given class
 	 */
 	private boolean checkIfPrivate(IASTCompositeTypeSpecifier classNode, IASTDeclaration decl) {
@@ -218,12 +246,12 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 		int currentVisibility = ICPPASTVisibilityLabel.v_private;
 		if (IASTCompositeTypeSpecifier.k_struct == classNode.getKey()) {
 			currentVisibility = ICPPASTVisibilityLabel.v_public;
-		}		
+		}
 		for (IASTDeclaration declaration : members) {
 			if (declaration instanceof ICPPASTVisibilityLabel) {
-				currentVisibility =((ICPPASTVisibilityLabel) declaration).getVisibility();
+				currentVisibility = ((ICPPASTVisibilityLabel) declaration).getVisibility();
 			}
-			
+
 			if (declaration != null) {
 				if (decl == declaration) {
 					break;
@@ -235,87 +263,90 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 		}
 		return false;
 	}
-	
-	/* (non-Javadoc)
-	 * @see org.eclipse.cdt.internal.ui.refactoring.CRefactoring#collectModifications(org.eclipse.core.runtime.IProgressMonitor, org.eclipse.cdt.internal.ui.refactoring.ModificationCollector)
+
+	/*
+	 * (non-Javadoc)
+	 * 
+	 * @see
+	 * org.eclipse.cdt.internal.ui.refactoring.CRefactoring#collectModifications(org.eclipse.core.runtime.
+	 * IProgressMonitor, org.eclipse.cdt.internal.ui.refactoring.ModificationCollector)
 	 */
 	@Override
 	protected void collectModifications(IProgressMonitor pm, ModificationCollector collector)
 			throws CoreException, OperationCanceledException {
-		if(fieldName != null) {
-			if(fieldDeclaration != null && fieldDeclaration instanceof IASTSimpleDeclaration) 
-			{
-				TextEditGroup editGroup = new TextEditGroup(Messages.EncapsulateFieldRefactoring_FILE_CHANGE_TEXT+ fieldName.getRawSignature());				
+		if (fieldName != null) {
+			if (fieldDeclaration != null && fieldDeclaration instanceof IASTSimpleDeclaration) {
+				TextEditGroup editGroup = new TextEditGroup(
+						Messages.EncapsulateFieldRefactoring_FILE_CHANGE_TEXT + fieldName.getRawSignature());
 				// create getter and create setter
 				createSetterGetter(collector, editGroup);
-				
-				// replace all reads and writes by getters/setters (except for references within the getters/setters)
+
+				// replace all reads and writes by getters/setters (except for references within the
+				// getters/setters)
 				replaceAccesses(collector, editGroup);
-				
+
 				// make field private
 				makeFieldPrivate(collector, editGroup);
-			}
-			else
-			{
+			} else {
 				System.err.println("collectModifications(): fieldDeclaration=" + fieldDeclaration);
 			}
-		}
-		else
-		{
+		} else {
 			System.err.println("collectModifications(): fieldName=" + fieldName);
 		}
 	}
-
 
 	/**
 	 * Makes field declaration private.
 	 * 
 	 * Copied and adjusted from HideMethodRefactoring.collectModifications.
 	 * 
-	 * @param collector collector of changes
-	 * @param editGroup group of edits shown to the user in the GUI 
+	 * @param collector
+	 *            collector of changes
+	 * @param editGroup
+	 *            group of edits shown to the user in the GUI
 	 */
-	private void makeFieldPrivate(ModificationCollector collector, TextEditGroup editGroup) 
-	{
+	private void makeFieldPrivate(ModificationCollector collector, TextEditGroup editGroup) {
 		ASTRewrite rewriter = collector.rewriterForTranslationUnit(fieldName.getTranslationUnit());
-		ICPPASTCompositeTypeSpecifier classDefinition = (ICPPASTCompositeTypeSpecifier) fieldDeclaration.getParent();
-		ClassMemberInserter.createChange(classDefinition, VisibilityEnum.v_private, fieldDeclaration, false, collector);
+		ICPPASTCompositeTypeSpecifier classDefinition = (ICPPASTCompositeTypeSpecifier) fieldDeclaration
+				.getParent();
+		ClassMemberInserter.createChange(classDefinition, VisibilityEnum.v_private, fieldDeclaration, false,
+				collector);
 		rewriter.remove(fieldDeclaration, editGroup);
 	}
 
 	/**
 	 * Creates a getter and setter for field declaration.
 	 * 
-	 * @param collector collector of the changes
-	 * @param editGroup group of edits shown to the user in the GUI 
+	 * @param collector
+	 *            collector of the changes
+	 * @param editGroup
+	 *            group of edits shown to the user in the GUI
 	 */
 	private void createSetterGetter(ModificationCollector collector, TextEditGroup editGroup) {
 		// FIXME: not implemented
 	}
 
 	/**
-	 * Triggers the replacement of all references to field declaration in all files
-	 * where that is necessary.
+	 * Triggers the replacement of all references to field declaration in all files where that is necessary.
 	 * 
-	 * @param collector collector of the changes
-	 * @param editGroup group of edits shown to the user in the GUI 
+	 * @param collector
+	 *            collector of the changes
+	 * @param editGroup
+	 *            group of edits shown to the user in the GUI
 	 */
-	 private void replaceAccesses(ModificationCollector collector, TextEditGroup editGroup) {
+	private void replaceAccesses(ModificationCollector collector, TextEditGroup editGroup) {
 
 		// all write/read references to field declaration
 		final Map<String, ReferencesInFile> references = findReferences().references;
-		
-		for(String filename : references.keySet())
-		{	
-			//System.out.println("EncapsulateFieldRefactoring.replaceAccesses() handling file " + filename);
+
+		for (String filename : references.keySet()) {
+			// System.out.println("EncapsulateFieldRefactoring.replaceAccesses() handling file " + filename);
 			ITranslationUnit tu = getTranslationUnit(filename);
 
-			if(tu == null)
-			{	// no translation unit available for this file
+			if (tu == null) { // no translation unit available for this file
 				System.err.println("EncapsulateFieldRefactoring.replaceAccesses(): no AST for file " //$NON-NLS-1$
-						+ filename); 		
-			} else
-			{
+						+ filename);
+			} else {
 				// create index
 				IIndex index;
 				try {
@@ -323,21 +354,17 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 
 					// lock the index for read access
 					index.acquireReadLock();
-					try
-					{
+					try {
 						// create index based AST
 						IASTTranslationUnit ast = tu.getAST(index, ITranslationUnit.AST_SKIP_INDEXED_HEADERS);
 						if (ast == null) {
 							// file has no AST
 							System.err.println("No AST for file " + filename); //$NON-NLS-1$
 							break;
-						}
-						else {
+						} else {
 							replaceAccessInUnit(collector, editGroup, ast, references.get(filename));
 						}
-					}
-					finally
-					{
+					} finally {
 						index.releaseReadLock();
 					}
 				} catch (Exception e) {
@@ -351,89 +378,89 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 	/**
 	 * Rewrites the AST by replacing every read/write field access by getter/setter.
 	 * 
-	 * @param collector to collect the changes
-	 * @param editGroup group of edits shown to the user in the GUI 
-	 * @param ast the AST to be rewritten
-	 * @param node node at which the rewrite is to be applied
-	 * @param isRead tells us whether node is read
-	 * @param isWrite tells us whether node is written
+	 * @param collector
+	 *            to collect the changes
+	 * @param editGroup
+	 *            group of edits shown to the user in the GUI
+	 * @param ast
+	 *            the AST to be rewritten
+	 * @param node
+	 *            node at which the rewrite is to be applied
+	 * @param isRead
+	 *            tells us whether node is read
+	 * @param isWrite
+	 *            tells us whether node is written
 	 */
-	private void replaceAccess
-	    (ModificationCollector collector, 
-	     TextEditGroup editGroup,
-	     IASTTranslationUnit ast, 
-	     IASTNode node, 
-	     boolean isRead, 
-	     boolean isWrite) 
-	{
+	private void replaceAccess(ModificationCollector collector, TextEditGroup editGroup,
+			IASTTranslationUnit ast, IASTNode node, boolean isRead, boolean isWrite) {
 		IASTNode cursor = node;
-		
+
 		// emitParents(cursor); // useful to understand the context
-		
+
 		// now we can investigate the syntactic context
-		if(cursor.getPropertyInParent() == IASTFieldReference.FIELD_NAME)
-		{
+		if (cursor.getPropertyInParent() == IASTFieldReference.FIELD_NAME) {
 			// context is an access to the field
-			
-			if(isRead && !isWrite) {
+
+			if (isRead && !isWrite) {
 				// replace field reference o.f by call o.get()
 				// functioncallexpression(fieldreference(expression(name("receiver")))
-				//                        name("method"))
-                
+				// name("method"))
+
 				// FIXME: The following code just illustrates the rewrite:
 				// we need to retrieve the proper receiver and method names from the
 				// original field access
-                ICPPASTName receiver = new CPPASTName("receiver".toCharArray());
-                ICPPASTExpression expr = new CPPASTIdExpression(receiver);
+				ICPPASTName receiver = new CPPASTName("receiver".toCharArray());
+				ICPPASTExpression expr = new CPPASTIdExpression(receiver);
 
-                ICPPASTName calledMethod = new CPPASTName("method".toCharArray());                
-                ICPPASTFieldReference newReference = new CPPASTFieldReference(calledMethod, expr);
-     
-                ICPPASTFunctionCallExpression call = new CPPASTFunctionCallExpression();
-                call.setFunctionNameExpression(newReference);
-                
+				ICPPASTName calledMethod = new CPPASTName("method".toCharArray());
+				ICPPASTFieldReference newReference = new CPPASTFieldReference(calledMethod, expr);
+
+				ICPPASTFunctionCallExpression call = new CPPASTFunctionCallExpression();
+				call.setFunctionNameExpression(newReference);
+
 				ASTRewrite rewrite = collector.rewriterForTranslationUnit(ast);
 				rewrite.replace(cursor.getParent(), call, editGroup);
 			}
-			
+
 			// FIXME: Handle all other possible cases
 		}
 	}
-	
+
 	/**
-	 * Emits cursor and all its transitive parents and emits their role in their parents.
-	 * Useful to understand a context.
+	 * Emits cursor and all its transitive parents and emits their role in their parents. Useful to understand
+	 * a context.
 	 * 
-	 * @param cursor where to start the bottom-up traversal of the AST
+	 * @param cursor
+	 *            where to start the bottom-up traversal of the AST
 	 */
 	private void emitParents(IASTNode cursor) {
-		while(cursor != null) {
+		while (cursor != null) {
 			System.out.println("  " + cursor.getClass() + " " + cursor.getPropertyInParent());
 			cursor = cursor.getParent();
 		}
 	}
 
 	/**
-	 * Replaces a field reference (fieldReferencesInThisAST) in given AST 
-	 * by a getter/setter call.
-	 * The whole AST is traversed to locate the position for this rewrite.
+	 * Replaces a field reference (fieldReferencesInThisAST) in given AST by a getter/setter call. The whole
+	 * AST is traversed to locate the position for this rewrite.
 	 * 
-	 * @param collector collector for the changes
-	 * @param editGroup group of edits shown to the user in the GUI 
-	 * @param ast AST to be rewritten
-	 * @param fieldReferencesInThisAST a field reference in this AST
+	 * @param collector
+	 *            collector for the changes
+	 * @param editGroup
+	 *            group of edits shown to the user in the GUI
+	 * @param ast
+	 *            AST to be rewritten
+	 * @param fieldReferencesInThisAST
+	 *            a field reference in this AST
 	 */
-	private void replaceAccessInUnit
-	       (final ModificationCollector collector,
-	        final TextEditGroup editGroup,
-			final IASTTranslationUnit ast, 
-			final ReferencesInFile fieldReferencesInThisAST) {
-		
+	private void replaceAccessInUnit(final ModificationCollector collector, final TextEditGroup editGroup,
+			final IASTTranslationUnit ast, final ReferencesInFile fieldReferencesInThisAST) {
+
 		// print AST for debugging/understanding purposes
 		// ASTPrinter.print(ast);
-		
+
 		// visit all given references in the AST using a visitor to locate the node
-		// that needs to be rewritten. It is identified by the node offset. 
+		// that needs to be rewritten. It is identified by the node offset.
 		ast.accept(new ASTVisitor() {
 			{
 				shouldVisitNames = true;
@@ -445,12 +472,9 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 				if (fieldReferencesInThisAST.isRead(nodeOffset)
 						|| fieldReferencesInThisAST.isWrite(nodeOffset)) {
 					// node found
-					replaceAccess(collector,
-							      editGroup,
-							      ast,
-								  name, 
-							      fieldReferencesInThisAST.isRead(nodeOffset),
-							      fieldReferencesInThisAST.isWrite(nodeOffset));
+					replaceAccess(collector, editGroup, ast, name,
+							fieldReferencesInThisAST.isRead(nodeOffset),
+							fieldReferencesInThisAST.isWrite(nodeOffset));
 				}
 				return super.visit(name);
 			}
@@ -461,7 +485,8 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 	/**
 	 * Returns the file location information of given node as a string.
 	 * 
-	 * @param node any AST node
+	 * @param node
+	 *            any AST node
 	 * @return file location information
 	 */
 	private String locationToString(IASTNode node) {
@@ -471,21 +496,20 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 	/**
 	 * Returns the file location information as a string.
 	 * 
-	 * @param location any AST node
+	 * @param location
+	 *            any AST node
 	 * @return file location information
 	 */
 	private String locationToString(final IASTFileLocation location) {
-		return location.getFileName()
-				+ ":" + location.getStartingLineNumber()
-				+ "(" + location.getNodeOffset() + ")"
-				+ ": ";
+		return location.getFileName() + ":" + location.getStartingLineNumber() + "("
+				+ location.getNodeOffset() + ")" + ": ";
 	}
-	
+
 	/**
-	 * Returns the translation unit for filename. File must be source
-	 * code part of the project.
+	 * Returns the translation unit for filename. File must be source code part of the project.
 	 * 
-	 * @param filename Filename of the translation unit
+	 * @param filename
+	 *            Filename of the translation unit
 	 * @return translation unit for filename (may be null)
 	 */
 	private ITranslationUnit getTranslationUnit(String filename) {
@@ -495,19 +519,17 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 			return CoreModelUtil.findTranslationUnitForLocation(path, project);
 		} catch (CModelException e) {
 			e.printStackTrace();
-		} 
-		
+		}
+
 		// try alternatives to obtain the translation unit
-		IFile file= ResourcesPlugin.getWorkspace().getRoot().getFile(path);
-		if(file == null)
-		{
-			System.err.println("EncapsulateFieldRefactoring.replaceAccesses(): no file "
-					+ filename);
+		IFile file = ResourcesPlugin.getWorkspace().getRoot().getFile(path);
+		if (file == null) {
+			System.err.println("EncapsulateFieldRefactoring.replaceAccesses(): no file " + filename);
 			return null;
 		} else {
 			ITranslationUnit tu = CoreModelUtil.findTranslationUnit(file);
 			if (tu == null) {
-				tu = CoreModel.getDefault().createTranslationUnitFrom(project, file.getLocation() );
+				tu = CoreModel.getDefault().createTranslationUnitFrom(project, file.getLocation());
 			}
 			if (tu == null) {
 				tu = (ITranslationUnit) CoreModel.getDefault().create(file);
@@ -517,25 +539,22 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 	}
 
 	/**
-	 * Represents a reference of a name that denotes a field.
-	 * It is possible that a reference represents both a write and 
-	 * a read of the field.
+	 * Represents a reference of a name that denotes a field. It is possible that a reference represents both
+	 * a write and a read of the field.
 	 *
 	 */
-	private class FieldReference
-	{
-		public FieldReference(int nodeOffset, boolean isRead, boolean isWrite)
-		{
+	private class FieldReference {
+		public FieldReference(int nodeOffset, boolean isRead, boolean isWrite) {
 			this.nodeOffset = nodeOffset;
-			this.isWrite    = isWrite;
-			this.isRead     = isRead;
+			this.isWrite = isWrite;
+			this.isRead = isRead;
 		}
-		
+
 		/**
 		 * The node offset of the reference within its file.
 		 */
 		public int nodeOffset;
-		
+
 		/**
 		 * True iff reference represents a write to the field.
 		 */
@@ -545,27 +564,27 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 		 */
 		public boolean isRead;
 	}
-	
+
 	/**
-	 * References to a field in one particular file classified as reads and writes
-	 * (reading and writing can be true at the same time).
+	 * References to a field in one particular file classified as reads and writes (reading and writing can be
+	 * true at the same time).
 	 *
 	 */
 	private class ReferencesInFile {
 		public Set<FieldReference> references = new HashSet<FieldReference>();
-		
+
 		public boolean isWrite(int nodeOffset) {
-			for(FieldReference reference : references) {
-				if(reference.nodeOffset == nodeOffset) {
+			for (FieldReference reference : references) {
+				if (reference.nodeOffset == nodeOffset) {
 					return reference.isWrite;
 				}
 			}
 			return false;
 		}
-		
+
 		public boolean isRead(int nodeOffset) {
-			for(FieldReference reference : references) {
-				if(reference.nodeOffset == nodeOffset) {
+			for (FieldReference reference : references) {
+				if (reference.nodeOffset == nodeOffset) {
 					return reference.isRead;
 				}
 			}
@@ -576,17 +595,17 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 			references.add(reference);
 		}
 	}
-	
+
 	/**
 	 * Global references to a particular field declaration (in any file).
 	 */
 	private class References {
-	
+
 		// filename -> set of references within that file
 		public Map<String, ReferencesInFile> references = new HashMap<String, ReferencesInFile>();
-		
+
 		public void add(String filename, FieldReference reference) {
-			if(references.containsKey(filename)) {
+			if (references.containsKey(filename)) {
 				references.get(filename).add(reference);
 			} else {
 				ReferencesInFile set = new ReferencesInFile();
@@ -595,7 +614,7 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 			}
 		}
 	}
-	
+
 	/**
 	 * Returns all read/write references to field declaration.
 	 * 
@@ -603,22 +622,17 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 	 */
 	private References findReferences() {
 		References result = new References();
-		
+
 		try {
 			// create index
 			IIndex index = CCorePlugin.getIndexManager().getIndex(project);
 			IIndexName[] names = index.findReferences(fieldName.resolveBinding());
-			for(int i = 0; i < names.length; i++)
-			{
+			for (int i = 0; i < names.length; i++) {
 				final IIndexName name = names[i];
 				final IASTFileLocation fileLocation = name.getFileLocation();
-				if(name.isReference())
-				{
-					result.add(fileLocation.getFileName(),
-							   new FieldReference
-							        (fileLocation.getNodeOffset(),
-							         name.isReadAccess(), 
-							         name.isWriteAccess()));
+				if (name.isReference()) {
+					result.add(fileLocation.getFileName(), new FieldReference(fileLocation.getNodeOffset(),
+							name.isReadAccess(), name.isWriteAccess()));
 				}
 			}
 		} catch (CoreException e) {
@@ -633,8 +647,10 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 	 * This method is a clone of HideMethodRefactoring.findAllMarkedNames.
 	 * 
 	 * @returnall names marked by the user in the Eclipse editor
-	 * @throws OperationCanceledException in case the operation is canceled by the user
-	 * @throws CoreException in case of CDT problems
+	 * @throws OperationCanceledException
+	 *             in case the operation is canceled by the user
+	 * @throws CoreException
+	 *             in case of CDT problems
 	 */
 	private List<IASTName> findAllMarkedNames() throws OperationCanceledException, CoreException {
 		final ArrayList<IASTName> namesVector = new ArrayList<IASTName>();
@@ -647,7 +663,8 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 
 			@Override
 			public int visit(IASTName name) {
-				if (name.isPartOfTranslationUnitFile() && SelectionHelper.doesNodeOverlapWithRegion(name, selectedRegion)) {
+				if (name.isPartOfTranslationUnitFile()
+						&& SelectionHelper.doesNodeOverlapWithRegion(name, selectedRegion)) {
 					if (!(name instanceof ICPPASTQualifiedName)) {
 						namesVector.add(name);
 					}
