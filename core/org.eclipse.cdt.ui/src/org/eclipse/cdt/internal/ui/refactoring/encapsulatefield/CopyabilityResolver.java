@@ -36,13 +36,15 @@ public class CopyabilityResolver {
 	 * @return true if the type is copyable
 	 */
 	public boolean isCopyable(ICPPClassType classType) {
-		boolean copyable = cache.get(classType);
-		if (!copyable) {
-			return false;
-		}
+		Boolean copyable = cache.get(classType);
+		if (copyable != null) {
+			if (!copyable) {
+				return false;
+			}
 
-		if (copyable) {
-			return true;
+			if (copyable) {
+				return true;
+			}
 		}
 
 		if (hasExplicitCopyConstructor(classType)) {
@@ -109,7 +111,7 @@ public class CopyabilityResolver {
 		for (ICPPBase base : classType.getBases()) {
 			IType baseClass = base.getBaseClassType();
 			if (baseClass instanceof ICPPClassType) {
-				if (isCopyable((ICPPClassType) baseClass)) {
+				if (!isCopyable((ICPPClassType) baseClass)) {
 					return true;
 				}
 			}
@@ -184,7 +186,7 @@ public class CopyabilityResolver {
 			IType type = field.getType();
 			if (type instanceof ICPPClassType) {
 				ICPPClassType fieldClassType = (ICPPClassType) type;
-				if (isCopyable(fieldClassType)) {
+				if (!isCopyable(fieldClassType)) {
 					return true;
 				}
 			}
