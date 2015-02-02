@@ -47,10 +47,12 @@ import org.eclipse.cdt.core.dom.ast.cpp.ICPPASTName;
 import org.eclipse.cdt.core.dom.ast.cpp.ICPPASTNamedTypeSpecifier;
 import org.eclipse.cdt.core.dom.ast.cpp.ICPPASTQualifiedName;
 import org.eclipse.cdt.core.dom.ast.cpp.ICPPASTVisibilityLabel;
+import org.eclipse.cdt.core.dom.ast.cpp.ICPPClassTemplate;
 import org.eclipse.cdt.core.dom.ast.cpp.ICPPClassType;
 import org.eclipse.cdt.core.dom.ast.cpp.ICPPConstructor;
 import org.eclipse.cdt.core.dom.ast.cpp.ICPPParameter;
 import org.eclipse.cdt.core.dom.ast.cpp.ICPPReferenceType;
+import org.eclipse.cdt.core.dom.ast.cpp.ICPPTemplateParameter;
 import org.eclipse.cdt.core.dom.rewrite.ASTRewrite;
 import org.eclipse.cdt.core.index.IIndex;
 import org.eclipse.cdt.core.index.IIndexName;
@@ -91,10 +93,29 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 	 * Name of the field declaration.
 	 */
 	private IASTName fieldName;
+
 	/**
 	 * Field declaration whose references are to be replaced by setters/getters.
 	 */
 	private IASTDeclaration fieldDeclaration;
+
+	/**
+	 * Denotes whether the field we are trying to encapsulate is copyable. Needed to determine whether we
+	 * should generate a regular or a forwarding setter.
+	 */
+	private boolean copyable = false;
+
+	/**
+	 * Set containing all template parameters for the enclosing class of the field we are trying to
+	 * encapsulate. This is needed if the field is not copyable, in order to generate a template parameter for
+	 * the forwarding setter that does not shadow any existing templates.
+	 */
+	private Set<String> templateParameters = new HashSet<>();
+
+	/**
+	 * Copyability resolver for this instance
+	 */
+	private CopyabilityResolver resolver = new CopyabilityResolver();
 
 	public EncapsulateFieldRefactoring(ICElement element, ISelection selection, ICProject project) {
 		super(element, selection, project);
@@ -208,6 +229,16 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 						}
 					}
 				}
+				IASTDeclSpecifier declSpec = ((IASTSimpleDeclaration) fieldDeclaration).getDeclSpecifier();
+				if (declSpec instanceof ICPPASTNamedTypeSpecifier) {
+					ICPPASTNamedTypeSpecifier namedDeclSpec = (ICPPASTNamedTypeSpecifier) declSpec;
+					IBinding binding = namedDeclSpec.getName().getBinding();
+					if (binding instanceof ICPPClassType) {
+						copyable = resolver.isCopyable((ICPPClassType) binding);
+					}
+				} else {
+					copyable = true;
+				}
 			} else {
 				initStatus.addFatalError(Messages.EncapsulateFieldRefactoring_CanOnlyEncapsulateFields);
 				return initStatus;
@@ -217,9 +248,20 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 			IASTCompositeTypeSpecifier classNode = CPPVisitor.findAncestorWithType(fieldName,
 					IASTCompositeTypeSpecifier.class);
 			if (classNode == null) {
-				initStatus.addError(Messages.EncapsulateFieldRefactoring_EnclosingClassNotFound);
+				initStatus.addFatalError(Messages.EncapsulateFieldRefactoring_EnclosingClassNotFound);
+				return initStatus;
 			}
 
+			// collect template parameters if field is not copyable
+			if (!copyable) {
+				IBinding classBinding = classNode.getName().getBinding();
+				if (classBinding instanceof ICPPClassTemplate) {
+					ICPPClassTemplate template = (ICPPClassTemplate) classBinding;
+					for (ICPPTemplateParameter templateParameter : template.getTemplateParameters()) {
+						templateParameters.add(templateParameter.getName());
+					}
+				}
+			}
 			// is this field already private in that class?
 			if (checkIfPrivate(classNode, fieldDeclaration)) {
 				initStatus.addError(Messages.EncapsulateFieldRefactoring_IsAlreadyPrivate);
@@ -646,7 +688,7 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 	 * 
 	 * This method is a clone of HideMethodRefactoring.findAllMarkedNames.
 	 * 
-	 * @returnall names marked by the user in the Eclipse editor
+	 * @return all names marked by the user in the Eclipse editor
 	 * @throws OperationCanceledException
 	 *             in case the operation is canceled by the user
 	 * @throws CoreException
