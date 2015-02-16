@@ -3,6 +3,7 @@ package org.eclipse.cdt.internal.ui.refactoring.encapsulatefield;
 import org.eclipse.osgi.util.NLS;
 
 final class Messages extends NLS {
+	public static String EncapsulateFieldRefactoring_NoTemplateParameterAvailable;
 	public static String EncapsulateFieldRefactoring_HasExternalReferences;
 	public static String EncapsulateFieldRefactoring_ENCAPSULATE_FIELD;
 	public static String EncapsulateFieldRefactoring_NoNameSelected;

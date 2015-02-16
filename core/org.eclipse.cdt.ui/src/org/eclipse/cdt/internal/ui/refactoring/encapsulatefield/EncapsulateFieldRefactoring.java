@@ -7,8 +7,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import javax.swing.text.html.HTMLDocument.HTMLReader.IsindexAction;
-
 import org.eclipse.core.resources.IFile;
 import org.eclipse.core.resources.ResourcesPlugin;
 import org.eclipse.core.runtime.CoreException;
@@ -26,32 +24,40 @@ import org.eclipse.text.edits.TextEditGroup;
 import org.eclipse.cdt.core.CCorePlugin;
 import org.eclipse.cdt.core.dom.ast.ASTVisitor;
 import org.eclipse.cdt.core.dom.ast.IASTCompositeTypeSpecifier;
+import org.eclipse.cdt.core.dom.ast.IASTCompoundStatement;
 import org.eclipse.cdt.core.dom.ast.IASTDeclSpecifier;
 import org.eclipse.cdt.core.dom.ast.IASTDeclaration;
 import org.eclipse.cdt.core.dom.ast.IASTDeclarator;
 import org.eclipse.cdt.core.dom.ast.IASTFieldReference;
 import org.eclipse.cdt.core.dom.ast.IASTFileLocation;
+import org.eclipse.cdt.core.dom.ast.IASTInitializerClause;
 import org.eclipse.cdt.core.dom.ast.IASTName;
 import org.eclipse.cdt.core.dom.ast.IASTNode;
+import org.eclipse.cdt.core.dom.ast.IASTNode.CopyStyle;
+import org.eclipse.cdt.core.dom.ast.IASTReturnStatement;
 import org.eclipse.cdt.core.dom.ast.IASTSimpleDeclSpecifier;
 import org.eclipse.cdt.core.dom.ast.IASTSimpleDeclaration;
 import org.eclipse.cdt.core.dom.ast.IASTTranslationUnit;
 import org.eclipse.cdt.core.dom.ast.IBinding;
-import org.eclipse.cdt.core.dom.ast.IQualifierType;
-import org.eclipse.cdt.core.dom.ast.IType;
+import org.eclipse.cdt.core.dom.ast.cpp.ICPPASTBinaryExpression;
 import org.eclipse.cdt.core.dom.ast.cpp.ICPPASTCompositeTypeSpecifier;
 import org.eclipse.cdt.core.dom.ast.cpp.ICPPASTExpression;
 import org.eclipse.cdt.core.dom.ast.cpp.ICPPASTFieldReference;
 import org.eclipse.cdt.core.dom.ast.cpp.ICPPASTFunctionCallExpression;
+import org.eclipse.cdt.core.dom.ast.cpp.ICPPASTFunctionDeclarator;
+import org.eclipse.cdt.core.dom.ast.cpp.ICPPASTFunctionDefinition;
 import org.eclipse.cdt.core.dom.ast.cpp.ICPPASTName;
 import org.eclipse.cdt.core.dom.ast.cpp.ICPPASTNamedTypeSpecifier;
+import org.eclipse.cdt.core.dom.ast.cpp.ICPPASTParameterDeclaration;
 import org.eclipse.cdt.core.dom.ast.cpp.ICPPASTQualifiedName;
+import org.eclipse.cdt.core.dom.ast.cpp.ICPPASTSimpleTypeTemplateParameter;
+import org.eclipse.cdt.core.dom.ast.cpp.ICPPASTTemplateDeclaration;
+import org.eclipse.cdt.core.dom.ast.cpp.ICPPASTTemplateId;
+import org.eclipse.cdt.core.dom.ast.cpp.ICPPASTTypeId;
 import org.eclipse.cdt.core.dom.ast.cpp.ICPPASTVisibilityLabel;
+import org.eclipse.cdt.core.dom.ast.cpp.ICPPClassSpecialization;
 import org.eclipse.cdt.core.dom.ast.cpp.ICPPClassTemplate;
 import org.eclipse.cdt.core.dom.ast.cpp.ICPPClassType;
-import org.eclipse.cdt.core.dom.ast.cpp.ICPPConstructor;
-import org.eclipse.cdt.core.dom.ast.cpp.ICPPParameter;
-import org.eclipse.cdt.core.dom.ast.cpp.ICPPReferenceType;
 import org.eclipse.cdt.core.dom.ast.cpp.ICPPTemplateParameter;
 import org.eclipse.cdt.core.dom.rewrite.ASTRewrite;
 import org.eclipse.cdt.core.index.IIndex;
@@ -63,10 +69,28 @@ import org.eclipse.cdt.core.model.ICElement;
 import org.eclipse.cdt.core.model.ICProject;
 import org.eclipse.cdt.core.model.ITranslationUnit;
 
+import org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTBinaryExpression;
+import org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTCompoundStatement;
+import org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTDeclarator;
+import org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTExpressionStatement;
 import org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTFieldReference;
 import org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTFunctionCallExpression;
+import org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTFunctionDeclarator;
+import org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTFunctionDefinition;
 import org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTIdExpression;
+import org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTInitializerExpression;
+import org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTLiteralExpression;
 import org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTName;
+import org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTNamedTypeSpecifier;
+import org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTParameterDeclaration;
+import org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTQualifiedName;
+import org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTReferenceOperator;
+import org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTReturnStatement;
+import org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTSimpleDeclSpecifier;
+import org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTSimpleTypeTemplateParameter;
+import org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTTemplateDeclaration;
+import org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTTemplateId;
+import org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTTypeId;
 import org.eclipse.cdt.internal.core.dom.parser.cpp.semantics.CPPVisitor;
 
 import org.eclipse.cdt.internal.ui.refactoring.CRefactoring;
@@ -106,11 +130,9 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 	private boolean copyable = false;
 
 	/**
-	 * Set containing all template parameters for the enclosing class of the field we are trying to
-	 * encapsulate. This is needed if the field is not copyable, in order to generate a template parameter for
-	 * the forwarding setter that does not shadow any existing templates.
+	 * The template parameter to use if we are generating a forwarding setter.
 	 */
-	private Set<String> templateParameters = new HashSet<>();
+	private String forwardTemplateParameter = null;
 
 	/**
 	 * Copyability resolver for this instance
@@ -234,6 +256,9 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 					ICPPASTNamedTypeSpecifier namedDeclSpec = (ICPPASTNamedTypeSpecifier) declSpec;
 					IBinding binding = namedDeclSpec.getName().getBinding();
 					if (binding instanceof ICPPClassType) {
+						if (binding instanceof ICPPClassSpecialization) {
+							resolver.setStartingPoint(fieldDeclaration);
+						}
 						copyable = resolver.isCopyable((ICPPClassType) binding);
 					}
 				} else {
@@ -257,11 +282,26 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 				IBinding classBinding = classNode.getName().getBinding();
 				if (classBinding instanceof ICPPClassTemplate) {
 					ICPPClassTemplate template = (ICPPClassTemplate) classBinding;
+					Set<String> templateParameters = new HashSet<>();
 					for (ICPPTemplateParameter templateParameter : template.getTemplateParameters()) {
 						templateParameters.add(templateParameter.getName());
 					}
+					boolean foundParameter = false;
+					for (char current = 'A'; current <= 'Z'; current++) {
+						String parameter = "" + current; //$NON-NLS-1$
+						if (!templateParameters.contains(parameter)) {
+							this.forwardTemplateParameter = parameter;
+							foundParameter = true;
+							break;
+						}
+					}
+					if (!foundParameter) {
+						initStatus
+								.addFatalError(Messages.EncapsulateFieldRefactoring_NoTemplateParameterAvailable);
+					}
 				}
 			}
+
 			// is this field already private in that class?
 			if (checkIfPrivate(classNode, fieldDeclaration)) {
 				initStatus.addError(Messages.EncapsulateFieldRefactoring_IsAlreadyPrivate);
@@ -330,10 +370,10 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 				// make field private
 				makeFieldPrivate(collector, editGroup);
 			} else {
-				System.err.println("collectModifications(): fieldDeclaration=" + fieldDeclaration);
+				System.err.println("collectModifications(): fieldDeclaration=" + fieldDeclaration); //$NON-NLS-1$
 			}
 		} else {
-			System.err.println("collectModifications(): fieldName=" + fieldName);
+			System.err.println("collectModifications(): fieldName=" + fieldName); //$NON-NLS-1$
 		}
 	}
 
@@ -365,7 +405,124 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 	 *            group of edits shown to the user in the GUI
 	 */
 	private void createSetterGetter(ModificationCollector collector, TextEditGroup editGroup) {
-		// FIXME: not implemented
+		ICPPASTCompositeTypeSpecifier classDefinition = (ICPPASTCompositeTypeSpecifier) fieldDeclaration
+				.getParent();
+		String uppercaseName = fieldName.toString();
+		uppercaseName = Character.toUpperCase(uppercaseName.charAt(0)) + uppercaseName.substring(1);
+		IASTSimpleDeclaration decl = (IASTSimpleDeclaration) fieldDeclaration;
+
+		generateGetter(collector, classDefinition, uppercaseName, decl);
+		generateSetter(collector, classDefinition, uppercaseName, decl);
+	}
+
+	private void generateGetter(ModificationCollector collector,
+			ICPPASTCompositeTypeSpecifier classDefinition, String uppercaseName, IASTSimpleDeclaration decl) {
+		IASTDeclSpecifier getterDeclSpec = decl.getDeclSpecifier().copy(CopyStyle.withoutLocations);
+		getterDeclSpec.setInline(true);
+
+		/*
+		 * If the type is not copyable, we need a ref-to-const getter. Set the const part here.
+		 */
+		if (!copyable) {
+			getterDeclSpec.setConst(true);
+		}
+
+		String getterName = "get" + uppercaseName; //$NON-NLS-1$
+		IASTName getterASTName = new CPPASTName(getterName.toCharArray());
+		ICPPASTFunctionDeclarator getterDeclarator = new CPPASTFunctionDeclarator(getterASTName);
+		getterDeclarator.setConst(true);
+
+		/*
+		 * If the type is not copyable, we need a ref-to-const getter. Set the ref part here.
+		 */
+		if (!copyable) {
+			getterDeclarator.addPointerOperator(new CPPASTReferenceOperator(false));
+		}
+
+		IASTReturnStatement getterStatement = new CPPASTReturnStatement(new CPPASTIdExpression(
+				fieldName.copy()));
+		IASTCompoundStatement getterBlock = new CPPASTCompoundStatement();
+		getterBlock.addStatement(getterStatement);
+
+		ICPPASTFunctionDefinition getterDef = new CPPASTFunctionDefinition(getterDeclSpec, getterDeclarator,
+				getterBlock);
+		ClassMemberInserter.createChange(classDefinition, VisibilityEnum.v_public, getterDef, false,
+				collector);
+	}
+
+	private void generateSetter(ModificationCollector collector,
+			ICPPASTCompositeTypeSpecifier classDefinition, String uppercaseName, IASTSimpleDeclaration decl) {
+		IASTSimpleDeclSpecifier setterDeclSpec = new CPPASTSimpleDeclSpecifier();
+		setterDeclSpec.setType(IASTSimpleDeclSpecifier.t_void);
+		setterDeclSpec.setInline(true);
+
+		String setterName = "set" + uppercaseName; //$NON-NLS-1$
+		IASTName setterASTName = new CPPASTName(setterName.toCharArray());
+		ICPPASTFunctionDeclarator setterDeclarator = new CPPASTFunctionDeclarator(setterASTName);
+
+		ICPPASTFieldReference fieldRef = new CPPASTFieldReference();
+		fieldRef.setIsPointerDereference(true);
+		CPPASTLiteralExpression lit = new CPPASTLiteralExpression(CPPASTLiteralExpression.lk_this,
+				"this".toCharArray()); //$NON-NLS-1$
+		fieldRef.setFieldOwner(lit);
+		fieldRef.setFieldName(fieldName.copy(CopyStyle.withoutLocations));
+
+		ICPPASTBinaryExpression assignment = new CPPASTBinaryExpression();
+		assignment.setOperator(ICPPASTBinaryExpression.op_assign);
+		assignment.setOperand1(fieldRef);
+
+		IASTNode setterDef = null;
+		ICPPASTFunctionDefinition setterFunctionDefinition = new CPPASTFunctionDefinition();
+		setterFunctionDefinition.setDeclSpecifier(setterDeclSpec);
+		if (copyable) {
+			ICPPASTParameterDeclaration parameterDecl = new CPPASTParameterDeclaration(decl
+					.getDeclSpecifier().copy(CopyStyle.withoutLocations), new CPPASTDeclarator(
+					fieldName.copy(CopyStyle.withoutLocations)));
+			setterDeclarator.addParameterDeclaration(parameterDecl);
+
+			assignment.setOperand2(new CPPASTIdExpression(fieldName.copy(CopyStyle.withoutLocations)));
+			IASTCompoundStatement setterBlock = new CPPASTCompoundStatement();
+			setterBlock.addStatement(new CPPASTExpressionStatement(assignment));
+
+			setterFunctionDefinition.setDeclarator(setterDeclarator);
+			setterFunctionDefinition.setBody(setterBlock);
+
+			setterDef = setterFunctionDefinition;
+		} else {
+			ICPPASTSimpleTypeTemplateParameter templateParameter = new CPPASTSimpleTypeTemplateParameter();
+			templateParameter.setParameterType(ICPPASTSimpleTypeTemplateParameter.st_typename);
+			templateParameter.setName(new CPPASTName(forwardTemplateParameter.toCharArray()));
+
+			ICPPASTTemplateDeclaration templateDeclaration = new CPPASTTemplateDeclaration();
+			templateDeclaration.addTemplateParameter(templateParameter);
+
+			ICPPASTParameterDeclaration parameterDecl = new CPPASTParameterDeclaration();
+			parameterDecl.setDeclarator(new CPPASTDeclarator(fieldName.copy(CopyStyle.withoutLocations)));
+			parameterDecl.setDeclSpecifier(new CPPASTNamedTypeSpecifier(templateParameter.getName()));
+			setterDeclarator.addParameterDeclaration(parameterDecl);
+
+			// FIXME: Turn this block into a templated function call somehow
+			ICPPASTFunctionCallExpression forwardCall = new CPPASTFunctionCallExpression();
+			ICPPASTQualifiedName qualifiedName = new CPPASTQualifiedName(new CPPASTName("std".toCharArray())); //$NON-NLS-1$
+			qualifiedName.addName(new CPPASTName("forward".toCharArray())); //$NON-NLS-1$
+			forwardCall.setFunctionNameExpression(new CPPASTIdExpression(qualifiedName));
+			IASTInitializerClause init = new CPPASTIdExpression(fieldName.copy(CopyStyle.withoutLocations));
+			IASTInitializerClause[] inits = { init };
+			forwardCall.setArguments(inits);
+			assignment.setOperand2(forwardCall);
+
+			IASTCompoundStatement setterBlock = new CPPASTCompoundStatement();
+			setterBlock.addStatement(new CPPASTExpressionStatement(assignment));
+
+			setterFunctionDefinition.setDeclarator(setterDeclarator);
+			setterFunctionDefinition.setBody(setterBlock);
+			templateDeclaration.setDeclaration(setterFunctionDefinition);
+
+			setterDef = templateDeclaration;
+		}
+
+		ClassMemberInserter.createChange(classDefinition, VisibilityEnum.v_public, setterDef, false,
+				collector);
 	}
 
 	/**
@@ -451,10 +608,10 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 				// FIXME: The following code just illustrates the rewrite:
 				// we need to retrieve the proper receiver and method names from the
 				// original field access
-				ICPPASTName receiver = new CPPASTName("receiver".toCharArray());
+				ICPPASTName receiver = new CPPASTName("receiver".toCharArray()); //$NON-NLS-1$
 				ICPPASTExpression expr = new CPPASTIdExpression(receiver);
 
-				ICPPASTName calledMethod = new CPPASTName("method".toCharArray());
+				ICPPASTName calledMethod = new CPPASTName("method".toCharArray()); //$NON-NLS-1$
 				ICPPASTFieldReference newReference = new CPPASTFieldReference(calledMethod, expr);
 
 				ICPPASTFunctionCallExpression call = new CPPASTFunctionCallExpression();
@@ -477,7 +634,7 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 	 */
 	private void emitParents(IASTNode cursor) {
 		while (cursor != null) {
-			System.out.println("  " + cursor.getClass() + " " + cursor.getPropertyInParent());
+			System.out.println("  " + cursor.getClass() + " " + cursor.getPropertyInParent()); //$NON-NLS-1$ //$NON-NLS-2$
 			cursor = cursor.getParent();
 		}
 	}
@@ -532,7 +689,7 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 	 * @return file location information
 	 */
 	private String locationToString(IASTNode node) {
-		return locationToString(node.getFileLocation()) + node.getClass().getName() + " ";
+		return locationToString(node.getFileLocation()) + node.getClass().getName() + " "; //$NON-NLS-1$
 	}
 
 	/**
@@ -543,8 +700,8 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 	 * @return file location information
 	 */
 	private String locationToString(final IASTFileLocation location) {
-		return location.getFileName() + ":" + location.getStartingLineNumber() + "("
-				+ location.getNodeOffset() + ")" + ": ";
+		return location.getFileName() + ":" + location.getStartingLineNumber() + "(" //$NON-NLS-1$ //$NON-NLS-2$
+				+ location.getNodeOffset() + ")" + ": "; //$NON-NLS-1$ //$NON-NLS-2$
 	}
 
 	/**
@@ -566,7 +723,7 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 		// try alternatives to obtain the translation unit
 		IFile file = ResourcesPlugin.getWorkspace().getRoot().getFile(path);
 		if (file == null) {
-			System.err.println("EncapsulateFieldRefactoring.replaceAccesses(): no file " + filename);
+			System.err.println("EncapsulateFieldRefactoring.replaceAccesses(): no file " + filename); //$NON-NLS-1$
 			return null;
 		} else {
 			ITranslationUnit tu = CoreModelUtil.findTranslationUnit(file);
