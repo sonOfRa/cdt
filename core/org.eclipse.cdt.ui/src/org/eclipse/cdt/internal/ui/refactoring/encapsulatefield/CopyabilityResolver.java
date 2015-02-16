@@ -3,9 +3,11 @@ package org.eclipse.cdt.internal.ui.refactoring.encapsulatefield;
 import java.util.HashMap;
 import java.util.Map;
 
+import org.eclipse.cdt.core.dom.ast.IASTNode;
 import org.eclipse.cdt.core.dom.ast.IQualifierType;
 import org.eclipse.cdt.core.dom.ast.IType;
 import org.eclipse.cdt.core.dom.ast.cpp.ICPPBase;
+import org.eclipse.cdt.core.dom.ast.cpp.ICPPClassSpecialization;
 import org.eclipse.cdt.core.dom.ast.cpp.ICPPClassType;
 import org.eclipse.cdt.core.dom.ast.cpp.ICPPConstructor;
 import org.eclipse.cdt.core.dom.ast.cpp.ICPPField;
@@ -20,10 +22,22 @@ import org.eclipse.cdt.core.dom.ast.cpp.ICPPReferenceType;
  */
 public class CopyabilityResolver {
 
-	private Map<ICPPClassType, Boolean> cache;
+	/**
+	 * Cache for lookups.
+	 */
+	private Map<ICPPClassType, Boolean> cache = new HashMap<>();
+
+	/**
+	 * Starting point for template instantiation. May be null if classType is not a templated class.
+	 */
+	private IASTNode startingPoint = null;
 
 	public CopyabilityResolver() {
-		cache = new HashMap<>();
+
+	}
+
+	public void setStartingPoint(IASTNode startingPoint) {
+		this.startingPoint = startingPoint;
 	}
 
 	/**
@@ -82,14 +96,23 @@ public class CopyabilityResolver {
 	 * </ul>
 	 * 
 	 * Technically, a type may be copyable if the copy constructor is protected, if called from inside the
-	 * same class (or a subclass). This case is dismissed for simplicity's sake.
+	 * same class (or a subclass). These types are still assumed to be uncopyable, as getter and setter access
+	 * should also work outside of subclasses.
 	 * 
 	 * @param classType
 	 *            the class type to check copyability for
 	 * @return true if the type is uncopyable
 	 */
 	private boolean isExplicitlyUncopyable(ICPPClassType classType) {
-		for (ICPPConstructor constructor : classType.getConstructors()) {
+		ICPPConstructor[] constructors;
+		boolean isTemplate = classType instanceof ICPPClassSpecialization;
+		if (isTemplate) {
+			constructors = ((ICPPClassSpecialization) classType).getConstructors(startingPoint);
+		} else {
+			constructors = classType.getConstructors();
+		}
+
+		for (ICPPConstructor constructor : constructors) {
 			if (constructor.isDeleted() || constructor.getVisibility() == ICPPConstructor.v_private
 					|| constructor.getVisibility() == ICPPConstructor.v_protected) {
 				if (isCopyConstructor(constructor, classType)) {
@@ -108,7 +131,14 @@ public class CopyabilityResolver {
 	 * @return true if any base class of this class is uncopyable
 	 */
 	private boolean hasUncopyableBase(ICPPClassType classType) {
-		for (ICPPBase base : classType.getBases()) {
+		ICPPBase[] bases;
+		if (classType instanceof ICPPClassSpecialization) {
+			bases = ((ICPPClassSpecialization) classType).getBases(startingPoint);
+		} else {
+			bases = classType.getBases();
+		}
+
+		for (ICPPBase base : bases) {
 			IType baseClass = base.getBaseClassType();
 			if (baseClass instanceof ICPPClassType) {
 				if (!isCopyable((ICPPClassType) baseClass)) {
@@ -127,7 +157,14 @@ public class CopyabilityResolver {
 	 * @return true if this type has an explicitly defined copy constructor
 	 */
 	private boolean hasExplicitCopyConstructor(ICPPClassType classType) {
-		for (ICPPConstructor constructor : classType.getConstructors()) {
+		ICPPConstructor[] constructors;
+		if (classType instanceof ICPPClassSpecialization) {
+			constructors = ((ICPPClassSpecialization) classType).getConstructors(startingPoint);
+		} else {
+			constructors = classType.getConstructors();
+		}
+
+		for (ICPPConstructor constructor : constructors) {
 			if (constructor.isExplicit()) {
 				if (isCopyConstructor(constructor, classType)) {
 					return true;
@@ -182,7 +219,14 @@ public class CopyabilityResolver {
 		 * are already checked, so declared fields of base classes make those classes uncopyable, and this
 		 * method will not even be invoked.
 		 */
-		for (ICPPField field : classType.getDeclaredFields()) {
+		ICPPField[] fields;
+		if (classType instanceof ICPPClassSpecialization) {
+			fields = ((ICPPClassSpecialization) classType).getDeclaredFields(startingPoint);
+		} else {
+			fields = classType.getDeclaredFields();
+		}
+
+		for (ICPPField field : fields) {
 			IType type = field.getType();
 			if (type instanceof ICPPClassType) {
 				ICPPClassType fieldClassType = (ICPPClassType) type;
