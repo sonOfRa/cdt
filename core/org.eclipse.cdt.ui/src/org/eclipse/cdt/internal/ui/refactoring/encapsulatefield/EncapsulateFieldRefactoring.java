@@ -39,6 +39,7 @@ import org.eclipse.cdt.core.dom.ast.IASTSimpleDeclSpecifier;
 import org.eclipse.cdt.core.dom.ast.IASTSimpleDeclaration;
 import org.eclipse.cdt.core.dom.ast.IASTTranslationUnit;
 import org.eclipse.cdt.core.dom.ast.IBinding;
+import org.eclipse.cdt.core.dom.ast.ITypedef;
 import org.eclipse.cdt.core.dom.ast.cpp.ICPPASTBinaryExpression;
 import org.eclipse.cdt.core.dom.ast.cpp.ICPPASTCompositeTypeSpecifier;
 import org.eclipse.cdt.core.dom.ast.cpp.ICPPASTDeclarator;
@@ -255,6 +256,15 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 				if (declSpec instanceof ICPPASTNamedTypeSpecifier) {
 					ICPPASTNamedTypeSpecifier namedDeclSpec = (ICPPASTNamedTypeSpecifier) declSpec;
 					IBinding binding = namedDeclSpec.getName().getBinding();
+
+					if (binding instanceof ITypedef) {
+						ITypedef def = (ITypedef) binding;
+						if (def.getType() instanceof ICPPClassType) {
+							binding = (ICPPClassType) def.getType();
+						} else {
+							copyable = true;
+						}
+					}
 					if (binding instanceof ICPPClassType) {
 						if (binding instanceof ICPPClassSpecialization) {
 							resolver.setStartingPoint(fieldDeclaration);
@@ -506,7 +516,6 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 			parameterDecl.setDeclSpecifier(new CPPASTNamedTypeSpecifier(templateParameter.getName()));
 			setterDeclarator.addParameterDeclaration(parameterDecl);
 
-			// FIXME: Turn this block into a templated function call somehow
 			ICPPASTTypeId typeId = new CPPASTTypeId();
 			ICPPASTNamedTypeSpecifier typeSpec = new CPPASTNamedTypeSpecifier(templateParameter.getName());
 			typeId.setDeclSpecifier(typeSpec);
