@@ -41,6 +41,7 @@ import org.eclipse.cdt.core.dom.ast.IASTTranslationUnit;
 import org.eclipse.cdt.core.dom.ast.IBinding;
 import org.eclipse.cdt.core.dom.ast.cpp.ICPPASTBinaryExpression;
 import org.eclipse.cdt.core.dom.ast.cpp.ICPPASTCompositeTypeSpecifier;
+import org.eclipse.cdt.core.dom.ast.cpp.ICPPASTDeclarator;
 import org.eclipse.cdt.core.dom.ast.cpp.ICPPASTExpression;
 import org.eclipse.cdt.core.dom.ast.cpp.ICPPASTFieldReference;
 import org.eclipse.cdt.core.dom.ast.cpp.ICPPASTFunctionCallExpression;
@@ -78,7 +79,6 @@ import org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTFunctionCallExpression
 import org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTFunctionDeclarator;
 import org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTFunctionDefinition;
 import org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTIdExpression;
-import org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTInitializerExpression;
 import org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTLiteralExpression;
 import org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTName;
 import org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTNamedTypeSpecifier;
@@ -299,6 +299,8 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 						initStatus
 								.addFatalError(Messages.EncapsulateFieldRefactoring_NoTemplateParameterAvailable);
 					}
+				} else {
+					this.forwardTemplateParameter = "A"; //$NON-NLS-1$
 				}
 			}
 
@@ -496,21 +498,29 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 			ICPPASTTemplateDeclaration templateDeclaration = new CPPASTTemplateDeclaration();
 			templateDeclaration.addTemplateParameter(templateParameter);
 
+			ICPPASTDeclarator paramDeclarator = new CPPASTDeclarator(
+					fieldName.copy(CopyStyle.withoutLocations));
+			paramDeclarator.addPointerOperator(new CPPASTReferenceOperator(true));
 			ICPPASTParameterDeclaration parameterDecl = new CPPASTParameterDeclaration();
-			parameterDecl.setDeclarator(new CPPASTDeclarator(fieldName.copy(CopyStyle.withoutLocations)));
+			parameterDecl.setDeclarator(paramDeclarator);
 			parameterDecl.setDeclSpecifier(new CPPASTNamedTypeSpecifier(templateParameter.getName()));
 			setterDeclarator.addParameterDeclaration(parameterDecl);
 
 			// FIXME: Turn this block into a templated function call somehow
+			ICPPASTTypeId typeId = new CPPASTTypeId();
+			ICPPASTNamedTypeSpecifier typeSpec = new CPPASTNamedTypeSpecifier(templateParameter.getName());
+			typeId.setDeclSpecifier(typeSpec);
+			ICPPASTTemplateId templateId = new CPPASTTemplateId();
+			templateId.setTemplateName(new CPPASTName("forward".toCharArray())); //$NON-NLS-1$
+			templateId.addTemplateArgument(typeId);
 			ICPPASTFunctionCallExpression forwardCall = new CPPASTFunctionCallExpression();
 			ICPPASTQualifiedName qualifiedName = new CPPASTQualifiedName(new CPPASTName("std".toCharArray())); //$NON-NLS-1$
-			qualifiedName.addName(new CPPASTName("forward".toCharArray())); //$NON-NLS-1$
+			qualifiedName.addName(templateId);
 			forwardCall.setFunctionNameExpression(new CPPASTIdExpression(qualifiedName));
 			IASTInitializerClause init = new CPPASTIdExpression(fieldName.copy(CopyStyle.withoutLocations));
 			IASTInitializerClause[] inits = { init };
 			forwardCall.setArguments(inits);
 			assignment.setOperand2(forwardCall);
-
 			IASTCompoundStatement setterBlock = new CPPASTCompoundStatement();
 			setterBlock.addStatement(new CPPASTExpressionStatement(assignment));
 
