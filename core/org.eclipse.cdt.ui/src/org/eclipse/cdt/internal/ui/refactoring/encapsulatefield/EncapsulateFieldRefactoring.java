@@ -31,6 +31,7 @@ import org.eclipse.cdt.core.dom.ast.IASTDeclaration;
 import org.eclipse.cdt.core.dom.ast.IASTDeclarator;
 import org.eclipse.cdt.core.dom.ast.IASTFieldReference;
 import org.eclipse.cdt.core.dom.ast.IASTFileLocation;
+import org.eclipse.cdt.core.dom.ast.IASTFunctionDeclarator;
 import org.eclipse.cdt.core.dom.ast.IASTInitializerClause;
 import org.eclipse.cdt.core.dom.ast.IASTName;
 import org.eclipse.cdt.core.dom.ast.IASTNode;
@@ -247,7 +248,7 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 				// which may have multiple declarations?
 				for (IASTDeclarator declarator : ((IASTSimpleDeclaration) fieldDeclaration).getDeclarators()) {
 					if (declarator.getName().getRawSignature().equals(name.getRawSignature())) {
-						if (!(declarator instanceof IASTDeclarator)) {
+						if (declarator instanceof IASTFunctionDeclarator) {
 							initStatus
 									.addFatalError(Messages.EncapsulateFieldRefactoring_CanOnlyEncapsulateFields);
 							return initStatus;
@@ -402,6 +403,7 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 	 *            group of edits shown to the user in the GUI
 	 */
 	private void makeFieldPrivate(ModificationCollector collector, TextEditGroup editGroup) {
+		// FIXME: This currently moves the entire declaration: int foo, bar, baz;, even if only "bar" is selected.
 		ASTRewrite rewriter = collector.rewriterForTranslationUnit(fieldName.getTranslationUnit());
 		ICPPASTCompositeTypeSpecifier classDefinition = (ICPPASTCompositeTypeSpecifier) fieldDeclaration
 				.getParent();
