@@ -19,6 +19,7 @@ import org.eclipse.jface.viewers.ISelection;
 import org.eclipse.ltk.core.refactoring.RefactoringDescriptor;
 import org.eclipse.ltk.core.refactoring.RefactoringStatus;
 import org.eclipse.ltk.core.refactoring.participants.CheckConditionsContext;
+import org.eclipse.text.edits.InsertEdit;
 import org.eclipse.text.edits.TextEditGroup;
 
 import org.eclipse.cdt.core.CCorePlugin;
@@ -34,6 +35,7 @@ import org.eclipse.cdt.core.dom.ast.IASTInitializerClause;
 import org.eclipse.cdt.core.dom.ast.IASTName;
 import org.eclipse.cdt.core.dom.ast.IASTNode;
 import org.eclipse.cdt.core.dom.ast.IASTNode.CopyStyle;
+import org.eclipse.cdt.core.dom.ast.IASTPreprocessorIncludeStatement;
 import org.eclipse.cdt.core.dom.ast.IASTReturnStatement;
 import org.eclipse.cdt.core.dom.ast.IASTSimpleDeclSpecifier;
 import org.eclipse.cdt.core.dom.ast.IASTSimpleDeclaration;
@@ -424,7 +426,7 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 		IASTSimpleDeclaration decl = (IASTSimpleDeclaration) fieldDeclaration;
 
 		generateGetter(collector, classDefinition, uppercaseName, decl);
-		generateSetter(collector, classDefinition, uppercaseName, decl);
+		generateSetter(collector, classDefinition, uppercaseName, decl, editGroup);
 	}
 
 	private void generateGetter(ModificationCollector collector,
@@ -463,7 +465,8 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 	}
 
 	private void generateSetter(ModificationCollector collector,
-			ICPPASTCompositeTypeSpecifier classDefinition, String uppercaseName, IASTSimpleDeclaration decl) {
+			ICPPASTCompositeTypeSpecifier classDefinition, String uppercaseName, IASTSimpleDeclaration decl,
+			TextEditGroup editGroup) {
 		IASTSimpleDeclSpecifier setterDeclSpec = new CPPASTSimpleDeclSpecifier();
 		setterDeclSpec.setType(IASTSimpleDeclSpecifier.t_void);
 		setterDeclSpec.setInline(true);
@@ -538,6 +541,37 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 			templateDeclaration.setDeclaration(setterFunctionDefinition);
 
 			setterDef = templateDeclaration;
+
+			/*
+			 * Since we generated code that uses std::forward, we also need to include the <utility> header.
+			 * Check if it is already included, if not, find a suitable insertion point. If there already are
+			 * includes in the file, it is inserted before the first include directive. Otherwise
+			 */
+			IASTNode insertBefore = null;
+			boolean utilityIncluded = false;
+			for (IASTPreprocessorIncludeStatement includeStmt : fieldName.getTranslationUnit()
+					.getIncludeDirectives()) {
+				if (insertBefore == null) {
+					insertBefore = includeStmt;
+				}
+
+				if (includeStmt.isSystemInclude() && includeStmt.getName().toString().equals("utility")) { //$NON-NLS-1$
+					utilityIncluded = true;
+				}
+			}
+
+			if (!utilityIncluded) {
+				String lineSeparator = System.lineSeparator();
+				if (insertBefore == null) {
+					insertBefore = fieldName.getTranslationUnit().getChildren()[0];
+					lineSeparator = lineSeparator + System.lineSeparator();
+				}
+
+				// FIXME: The CDT does not support ASTRewrites with Preprocessor nodes.
+				InsertEdit edit = new InsertEdit(insertBefore.getFileLocation().getNodeOffset(),
+						"#include <utility>" + lineSeparator); //$NON-NLS-1$
+				editGroup.addTextEdit(edit);
+			}
 		}
 
 		ClassMemberInserter.createChange(classDefinition, VisibilityEnum.v_public, setterDef, false,
