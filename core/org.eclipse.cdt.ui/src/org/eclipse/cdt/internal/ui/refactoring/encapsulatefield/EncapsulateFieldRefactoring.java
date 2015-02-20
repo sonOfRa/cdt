@@ -403,7 +403,8 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 	 *            group of edits shown to the user in the GUI
 	 */
 	private void makeFieldPrivate(ModificationCollector collector, TextEditGroup editGroup) {
-		// FIXME: This currently moves the entire declaration: int foo, bar, baz;, even if only "bar" is selected.
+		// FIXME: This currently moves the entire declaration: int foo, bar, baz;, even if only "bar" is
+		// selected.
 		ASTRewrite rewriter = collector.rewriterForTranslationUnit(fieldName.getTranslationUnit());
 		ICPPASTCompositeTypeSpecifier classDefinition = (ICPPASTCompositeTypeSpecifier) fieldDeclaration
 				.getParent();
@@ -898,8 +899,6 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 	/**
 	 * Returns all names marked by the user in the Eclipse editor.
 	 * 
-	 * This method is a clone of HideMethodRefactoring.findAllMarkedNames.
-	 * 
 	 * @return all names marked by the user in the Eclipse editor
 	 * @throws OperationCanceledException
 	 *             in case the operation is canceled by the user
@@ -907,25 +906,6 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 	 *             in case of CDT problems
 	 */
 	private List<IASTName> findAllMarkedNames() throws OperationCanceledException, CoreException {
-		final ArrayList<IASTName> namesVector = new ArrayList<IASTName>();
-
-		IASTTranslationUnit ast = getAST(tu, null);
-		ast.accept(new ASTVisitor() {
-			{
-				shouldVisitNames = true;
-			}
-
-			@Override
-			public int visit(IASTName name) {
-				if (name.isPartOfTranslationUnitFile()
-						&& SelectionHelper.doesNodeOverlapWithRegion(name, selectedRegion)) {
-					if (!(name instanceof ICPPASTQualifiedName)) {
-						namesVector.add(name);
-					}
-				}
-				return super.visit(name);
-			}
-		});
-		return namesVector;
+		return super.findAllMarkedNames(getAST(tu, null));
 	}
 }
