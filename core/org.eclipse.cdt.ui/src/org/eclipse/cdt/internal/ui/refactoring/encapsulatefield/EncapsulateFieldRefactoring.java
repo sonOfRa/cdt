@@ -29,6 +29,7 @@ import org.eclipse.cdt.core.dom.ast.ExpansionOverlapsBoundaryException;
 import org.eclipse.cdt.core.dom.ast.IASTBinaryExpression;
 import org.eclipse.cdt.core.dom.ast.IASTCompositeTypeSpecifier;
 import org.eclipse.cdt.core.dom.ast.IASTCompoundStatement;
+import org.eclipse.cdt.core.dom.ast.IASTConditionalExpression;
 import org.eclipse.cdt.core.dom.ast.IASTDeclSpecifier;
 import org.eclipse.cdt.core.dom.ast.IASTDeclaration;
 import org.eclipse.cdt.core.dom.ast.IASTDeclarator;
@@ -85,6 +86,7 @@ import org.eclipse.cdt.core.model.ITranslationUnit;
 import org.eclipse.cdt.internal.core.dom.parser.ProblemType;
 import org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTBinaryExpression;
 import org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTCompoundStatement;
+import org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTConditionalExpression;
 import org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTDeclarator;
 import org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTExpressionStatement;
 import org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTFieldReference;
@@ -798,6 +800,21 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 			ICPPASTUnaryExpression unExp = (ICPPASTUnaryExpression) rhs;
 			return new CPPASTUnaryExpression(unExp.getOperator(), assembleSetterArgument(unExp.getOperand(),
 					originalFieldReference).copy(CopyStyle.withoutLocations));
+		}
+
+		/*
+		 * Expression is a conditional expression, like X ? Y : Z. Recurse on all three expressions and
+		 * assemble.
+		 */
+		if (rhs instanceof IASTConditionalExpression) {
+			IASTConditionalExpression condExp = (IASTConditionalExpression) rhs;
+			return new CPPASTConditionalExpression(assembleSetterArgument(
+					condExp.getLogicalConditionExpression(), originalFieldReference).copy(
+					CopyStyle.withoutLocations), assembleSetterArgument(
+					condExp.getPositiveResultExpression(), originalFieldReference).copy(
+					CopyStyle.withoutLocations), assembleSetterArgument(
+					condExp.getNegativeResultExpression(), originalFieldReference).copy(
+					CopyStyle.withoutLocations));
 		}
 
 		/*
