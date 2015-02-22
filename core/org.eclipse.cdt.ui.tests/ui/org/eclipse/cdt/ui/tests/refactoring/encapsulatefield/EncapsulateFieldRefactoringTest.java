@@ -296,4 +296,30 @@ public class EncapsulateFieldRefactoringTest extends
 	public void testComplexSetWithGets() throws Exception {
 		assertRefactoringSuccess();
 	}
+
+	// Foo.cpp
+	// struct Foo {
+	// /*$*/int bar /*$$*/;
+	// };
+	// void test(int param) {}
+	// int main() {
+	// Foo foo;
+	// test(foo.bar++);
+	// }
+	public void testWriteWithFunctionCall() throws Exception {
+		assertRefactoringFailure();
+	}
+
+	// Foo.cpp
+	// struct Foo {
+	// /*$*/int bar /*$$*/;
+	// };
+	// void test(int param) {}
+	// int main() {
+	// Foo foo;
+	// int foo[1] = { foo.bar++ };
+	// }
+	public void testWriteWithArrayInitializer() throws Exception {
+		assertRefactoringFailure();
+	}
 }
