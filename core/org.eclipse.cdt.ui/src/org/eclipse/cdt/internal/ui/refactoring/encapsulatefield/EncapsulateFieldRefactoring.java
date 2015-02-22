@@ -1,7 +1,5 @@
 package org.eclipse.cdt.internal.ui.refactoring.encapsulatefield;
 
-import java.util.ArrayDeque;
-import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -24,21 +22,24 @@ import org.eclipse.text.edits.InsertEdit;
 import org.eclipse.text.edits.TextEditGroup;
 
 import org.eclipse.cdt.core.CCorePlugin;
+import org.eclipse.cdt.core.dom.ast.ASTNodeProperty;
 import org.eclipse.cdt.core.dom.ast.ASTVisitor;
-import org.eclipse.cdt.core.dom.ast.ExpansionOverlapsBoundaryException;
-import org.eclipse.cdt.core.dom.ast.IASTBinaryExpression;
 import org.eclipse.cdt.core.dom.ast.IASTCompositeTypeSpecifier;
 import org.eclipse.cdt.core.dom.ast.IASTCompoundStatement;
 import org.eclipse.cdt.core.dom.ast.IASTConditionalExpression;
 import org.eclipse.cdt.core.dom.ast.IASTDeclSpecifier;
 import org.eclipse.cdt.core.dom.ast.IASTDeclaration;
 import org.eclipse.cdt.core.dom.ast.IASTDeclarator;
+import org.eclipse.cdt.core.dom.ast.IASTEqualsInitializer;
 import org.eclipse.cdt.core.dom.ast.IASTExpression;
+import org.eclipse.cdt.core.dom.ast.IASTExpressionStatement;
 import org.eclipse.cdt.core.dom.ast.IASTFieldReference;
 import org.eclipse.cdt.core.dom.ast.IASTFileLocation;
+import org.eclipse.cdt.core.dom.ast.IASTFunctionCallExpression;
 import org.eclipse.cdt.core.dom.ast.IASTFunctionDeclarator;
 import org.eclipse.cdt.core.dom.ast.IASTIdExpression;
 import org.eclipse.cdt.core.dom.ast.IASTInitializerClause;
+import org.eclipse.cdt.core.dom.ast.IASTInitializerList;
 import org.eclipse.cdt.core.dom.ast.IASTLiteralExpression;
 import org.eclipse.cdt.core.dom.ast.IASTName;
 import org.eclipse.cdt.core.dom.ast.IASTNode;
@@ -83,7 +84,6 @@ import org.eclipse.cdt.core.model.ICElement;
 import org.eclipse.cdt.core.model.ICProject;
 import org.eclipse.cdt.core.model.ITranslationUnit;
 
-import org.eclipse.cdt.internal.core.dom.parser.ProblemType;
 import org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTBinaryExpression;
 import org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTCompoundStatement;
 import org.eclipse.cdt.internal.core.dom.parser.cpp.CPPASTConditionalExpression;
@@ -158,10 +158,13 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 	 * Name for the setter
 	 */
 	private String setterName = null;
+
 	/**
 	 * Copyability resolver for this instance
 	 */
 	private CopyabilityResolver resolver = new CopyabilityResolver();
+
+	private boolean foundReferenceError = false;
 
 	public EncapsulateFieldRefactoring(ICElement element, ISelection selection, ICProject project) {
 		super(element, selection, project);
@@ -177,6 +180,10 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 		Map<String, String> arguments = getArgumentMap();
 		return new EncapsulateFieldRefactoringDescriptor(project.getProject().getName(),
 				"Encapsulate Field Refactoring", "Encapsulate " + fieldName.getRawSignature(), arguments); //$NON-NLS-1$//$NON-NLS-2$
+	}
+
+	public void test(int foo) {
+
 	}
 
 	/**
@@ -341,10 +348,242 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 			if (checkIfPrivate(classNode, fieldDeclaration)) {
 				initStatus.addError(Messages.EncapsulateFieldRefactoring_IsAlreadyPrivate);
 			}
+
+			checkReferencesForProblems(initStatus);
 			return initStatus;
 		} finally {
 			sm.done();
 		}
+	}
+
+	/**
+	 * Check all references to the field we are refactoring for possibly undefined behaviour, or other cases
+	 * the refactoring cannot currently handle
+	 * 
+	 * @param initStatus
+	 */
+	private void checkReferencesForProblems(RefactoringStatus initStatus) {
+		// all write/read references to field declaration
+		final Map<String, ReferencesInFile> references = findReferences().references;
+
+		for (String filename : references.keySet()) {
+			// System.out.println("EncapsulateFieldRefactoring.replaceAccesses() handling file " + filename);
+			ITranslationUnit tu = getTranslationUnit(filename);
+
+			if (tu == null) { // no translation unit available for this file
+				System.err.println("EncapsulateFieldRefactoring.replaceAccesses(): no AST for file " //$NON-NLS-1$
+						+ filename);
+			} else {
+				// create index
+				IIndex index;
+				try {
+					index = CCorePlugin.getIndexManager().getIndex(tu.getCProject());
+
+					// lock the index for read access
+					index.acquireReadLock();
+					try {
+						// create index based AST
+
+						IASTTranslationUnit ast = getAST(tu, null);
+						if (ast == null) {
+							// file has no AST
+							System.err.println("No AST for file " + filename); //$NON-NLS-1$
+							break;
+						} else {
+							checkReferencesForProblemsInUnit(initStatus, ast, references.get(filename));
+							if (foundReferenceError) {
+								break;
+							}
+						}
+					} finally {
+						index.releaseReadLock();
+					}
+				} catch (Exception e) {
+					System.err.println(e.getLocalizedMessage());
+					e.printStackTrace();
+				}
+			}
+		}
+	}
+
+	private void checkReferencesForProblemsInUnit(final RefactoringStatus initStatus,
+			final IASTTranslationUnit ast, final ReferencesInFile referencesInFile) {
+		ast.accept(new ASTVisitor() {
+			{
+				shouldVisitNames = true;
+			}
+
+			@Override
+			public int visit(IASTName name) {
+				final int nodeOffset = name.getFileLocation().getNodeOffset();
+				if (referencesInFile.isRead(nodeOffset) || referencesInFile.isWrite(nodeOffset)) {
+					// node found
+					checkReference(initStatus, ast, name, referencesInFile.isRead(nodeOffset),
+							referencesInFile.isWrite(nodeOffset));
+					if (foundReferenceError) {
+						return PROCESS_ABORT;
+					}
+				}
+				return super.visit(name);
+			}
+		});
+
+	}
+
+	/**
+	 * Check a single reference for errors, and add errors to the init status
+	 * 
+	 * @param initStatus
+	 *            initStatus for error checking
+	 * @param ast
+	 *            index ast to operator on
+	 * @param name
+	 *            AST node for this reference
+	 * @param read
+	 *            reference is read reference
+	 * @param write
+	 *            reference is write reference
+	 */
+	private void checkReference(RefactoringStatus initStatus, IASTTranslationUnit ast, IASTNode name,
+			boolean read, boolean write) {
+		if (name.getPropertyInParent() == ICPPASTFieldReference.FIELD_NAME) {
+			if (write) {
+				if (isUsedInComplexExpression((ICPPASTFieldReference) name.getParent())) {
+					initStatus.addFatalError("Cannot refactor write accesses used in complex expressions.");
+					foundReferenceError = true;
+					return;
+				}
+			}
+			if (read && write) {
+				if (name.getParent().getPropertyInParent() != ICPPASTUnaryExpression.OPERAND) {
+					initStatus
+							.addFatalError("Cannot refactor read-write references that aren't unary operands (you may be using a pointer or a reference to a field)");
+					foundReferenceError = true;
+					return;
+				}
+				int writeCounter = 0;
+				IASTNode parent = name.getParent();
+				while (parent.getPropertyInParent() == ICPPASTUnaryExpression.OPERAND) {
+					ICPPASTUnaryExpression unExp = (ICPPASTUnaryExpression) parent.getParent();
+					if (usesUnaryAssignmentOperators(unExp)) {
+						++writeCounter;
+					}
+					parent = parent.getParent();
+				}
+
+				if (writeCounter > 1) {
+					initStatus
+							.addFatalError("Cannot refactor unary operand references with more than one write");
+					foundReferenceError = true;
+					return;
+				}
+
+				while (parent.getPropertyInParent() != IASTExpressionStatement.EXPRESSION) {
+					ASTNodeProperty propInParent = parent.getPropertyInParent();
+					if (propInParent == ICPPASTBinaryExpression.OPERAND_ONE
+							|| propInParent == ICPPASTBinaryExpression.OPERAND_TWO) {
+						ICPPASTBinaryExpression binExp = (ICPPASTBinaryExpression) parent.getParent();
+						boolean isAssignment = usesAssignmentOperator(binExp);
+						if (propInParent == ICPPASTBinaryExpression.OPERAND_TWO) {
+							if (isAssignment) {
+								initStatus
+										.addFatalError("Cannot safely refactor assignments to a write-reference.");
+								foundReferenceError = true;
+								return;
+							}
+						} else {
+							IASTExpression lhs = binExp.getOperand1();
+							if (lhs instanceof ICPPASTFieldReference
+									&& isAssignment
+									&& name.toString().equals(
+											((ICPPASTFieldReference) lhs).getFieldName().toString())
+									&& ((ICPPASTFieldReference) lhs).getFieldOwnerType().equals(
+											((ICPPASTFieldReference) name.getParent()).getFieldOwnerType())) {
+								initStatus
+										.addFatalError("Cannot safely refactor assignments to field with write occurrences to same field on the right hand side.");
+								foundReferenceError = true;
+								return;
+
+							}
+						}
+					}
+					parent = parent.getParent();
+				}
+			}
+		}
+	}
+
+	/**
+	 * Checks whether the given Field reference is used in a complex expression.
+	 * 
+	 * This is used only for write-references. A write reference can only be refactored if it is a simple
+	 * expression like "++foo.bar", or a simple assignment like foo.bar = 10
+	 * 
+	 * @param fieldReference
+	 *            the field reference to check
+	 * @return true if the field reference is used in a complex expression
+	 */
+	private boolean isUsedInComplexExpression(ICPPASTFieldReference fieldReference) {
+		IASTNode cursor = fieldReference;
+		while (cursor.getPropertyInParent() == ICPPASTUnaryExpression.OPERAND) {
+			cursor = cursor.getParent();
+		}
+
+		if (cursor.getPropertyInParent() == IASTExpressionStatement.EXPRESSION) {
+			return false;
+		}
+		while (isBinaryExpressionArgument(cursor)) {
+
+			if (cursor.getPropertyInParent() == ICPPASTBinaryExpression.OPERAND_TWO) {
+				return true;
+			}
+
+			cursor = cursor.getParent();
+		}
+
+		ASTNodeProperty prop = cursor.getPropertyInParent();
+		return prop == IASTEqualsInitializer.INITIALIZER || prop == IASTInitializerList.NESTED_INITIALIZER
+				|| prop == IASTFunctionCallExpression.ARGUMENT;
+	}
+
+	/**
+	 * @param cursor
+	 * @return
+	 */
+	private boolean isBinaryExpressionArgument(IASTNode cursor) {
+		return cursor.getPropertyInParent() == ICPPASTBinaryExpression.OPERAND_ONE
+				|| cursor.getPropertyInParent() == ICPPASTBinaryExpression.OPERAND_TWO;
+	}
+
+	/**
+	 * @param unExp
+	 *            a unary expression
+	 * @return true if the unary expression uses an operator like ++ or --
+	 */
+	private boolean usesUnaryAssignmentOperators(ICPPASTUnaryExpression unExp) {
+		return unExp.getOperator() == ICPPASTUnaryExpression.op_prefixIncr
+				|| unExp.getOperator() == ICPPASTUnaryExpression.op_prefixDecr
+				|| unExp.getOperator() == ICPPASTUnaryExpression.op_postFixIncr
+				|| unExp.getOperator() == ICPPASTUnaryExpression.op_postFixDecr;
+	}
+
+	/**
+	 * @param binExp
+	 *            a binary expression
+	 * @return true if the binary expression uses any form of assignment operator
+	 */
+	private boolean usesAssignmentOperator(ICPPASTBinaryExpression binExp) {
+		return binExp.getOperator() == ICPPASTBinaryExpression.op_assign
+				|| binExp.getOperator() == ICPPASTBinaryExpression.op_binaryAndAssign
+				|| binExp.getOperator() == ICPPASTBinaryExpression.op_binaryOrAssign
+				|| binExp.getOperator() == ICPPASTBinaryExpression.op_binaryXorAssign
+				|| binExp.getOperator() == ICPPASTBinaryExpression.op_divideAssign
+				|| binExp.getOperator() == ICPPASTBinaryExpression.op_minusAssign
+				|| binExp.getOperator() == ICPPASTBinaryExpression.op_moduloAssign
+				|| binExp.getOperator() == ICPPASTBinaryExpression.op_multiplyAssign
+				|| binExp.getOperator() == ICPPASTBinaryExpression.op_plusAssign
+				|| binExp.getOperator() == ICPPASTBinaryExpression.op_shiftLeftAssign
+				|| binExp.getOperator() == ICPPASTBinaryExpression.op_shiftRightAssign;
 	}
 
 	/**
@@ -631,7 +870,7 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 					index.acquireReadLock();
 					try {
 						// create index based AST
-						IASTTranslationUnit ast = tu.getAST(index, ITranslationUnit.AST_SKIP_INDEXED_HEADERS);
+						IASTTranslationUnit ast = getAST(tu, null);
 						if (ast == null) {
 							// file has no AST
 							System.err.println("No AST for file " + filename); //$NON-NLS-1$
@@ -670,13 +909,56 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 			IASTTranslationUnit ast, IASTNode node, boolean isRead, boolean isWrite) {
 		IASTNode cursor = node;
 		ASTRewrite rewrite = collector.rewriterForTranslationUnit(ast);
-
 		// now we can investigate the syntactic context
 		if (cursor.getPropertyInParent() == IASTFieldReference.FIELD_NAME) {
 			// context is an access to the field
 
 			if (isRead) {
 				if (isWrite) {
+					IASTFieldReference fRef = (IASTFieldReference) cursor.getParent();
+					if (fRef.getPropertyInParent() == IASTUnaryExpression.OPERAND) {
+						IASTUnaryExpression unExp = (IASTUnaryExpression) fRef.getParent();
+						ICPPASTExpression setterReceiver = (ICPPASTExpression) fRef.getFieldOwner().copy(
+								CopyStyle.withoutLocations);
+
+						ICPPASTName setterMethodName = new CPPASTName(setterName.toCharArray());
+						ICPPASTFieldReference setterReference = new CPPASTFieldReference(setterMethodName,
+								setterReceiver);
+
+						ICPPASTFunctionCallExpression setterCall = new CPPASTFunctionCallExpression();
+						setterCall.setFunctionNameExpression(setterReference);
+
+						ICPPASTExpression getterReceiver = (ICPPASTExpression) fRef.getFieldOwner().copy(
+								CopyStyle.withoutLocations);
+
+						ICPPASTName getterMethodName = new CPPASTName(getterName.toCharArray());
+						ICPPASTFieldReference getterReference = new CPPASTFieldReference(getterMethodName,
+								getterReceiver);
+
+						ICPPASTFunctionCallExpression getterCall = new CPPASTFunctionCallExpression();
+						getterCall.setFunctionNameExpression(getterReference);
+
+						ICPPASTBinaryExpression setterArgument = new CPPASTBinaryExpression();
+						setterArgument.setOperand1(getterCall);
+						setterArgument.setOperand2(new CPPASTLiteralExpression(
+								CPPASTLiteralExpression.lk_integer_constant, new char[] { '1' }));
+
+						int op = unExp.getOperator();
+						boolean operatorOk = false;
+						if (op == IASTUnaryExpression.op_prefixIncr
+								|| op == IASTUnaryExpression.op_postFixIncr) {
+							setterArgument.setOperator(ICPPASTBinaryExpression.op_plus);
+							operatorOk = true;
+						} else if (op == IASTUnaryExpression.op_prefixDecr
+								|| op == IASTUnaryExpression.op_postFixDecr) {
+							setterArgument.setOperator(ICPPASTBinaryExpression.op_minus);
+							operatorOk = true;
+						}
+						setterCall.setArguments(new IASTInitializerClause[] { setterArgument });
+						if (operatorOk) {
+							rewrite.replace(unExp, setterCall, editGroup);
+						}
+					}
 				} else {
 					ICPPASTExpression receiver = (ICPPASTExpression) ((ICPPASTFieldReference) cursor
 							.getParent()).getFieldOwner().copy(CopyStyle.withoutLocations);
@@ -690,33 +972,30 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 					rewrite.replace(cursor.getParent(), call, editGroup);
 				}
 			} else {
-				if (isWrite) {
-					if (cursor.getParent().getParent() instanceof ICPPASTBinaryExpression) {
-						ICPPASTBinaryExpression binExp = (ICPPASTBinaryExpression) cursor.getParent()
-								.getParent();
-						if (binExp.getOperator() == ICPPASTBinaryExpression.op_assign) {
-							/*
-							 * We have an assignment, ready the setter
-							 */
-							ICPPASTExpression receiver = (ICPPASTExpression) ((ICPPASTFieldReference) cursor
-									.getParent()).getFieldOwner().copy(CopyStyle.withoutLocations);
 
-							ICPPASTName calledMethod = new CPPASTName(setterName.toCharArray());
-							ICPPASTFieldReference newReference = new CPPASTFieldReference(calledMethod,
-									receiver);
+				if (cursor.getParent().getParent() instanceof ICPPASTBinaryExpression) {
+					ICPPASTBinaryExpression binExp = (ICPPASTBinaryExpression) cursor.getParent().getParent();
+					if (binExp.getOperator() == ICPPASTBinaryExpression.op_assign) {
+						/*
+						 * We have an assignment, ready the setter
+						 */
+						ICPPASTExpression receiver = (ICPPASTExpression) ((ICPPASTFieldReference) cursor
+								.getParent()).getFieldOwner().copy(CopyStyle.withoutLocations);
 
-							ICPPASTFunctionCallExpression call = new CPPASTFunctionCallExpression();
-							call.setFunctionNameExpression(newReference);
+						ICPPASTName calledMethod = new CPPASTName(setterName.toCharArray());
+						ICPPASTFieldReference newReference = new CPPASTFieldReference(calledMethod, receiver);
 
-							call.setArguments(new IASTInitializerClause[] { assembleSetterArgument(
-									binExp.getOperand2(), (ICPPASTFieldReference) cursor.getParent()) });
+						ICPPASTFunctionCallExpression call = new CPPASTFunctionCallExpression();
+						call.setFunctionNameExpression(newReference);
 
-							rewrite.replace(binExp, call, editGroup);
-						}
+						IASTExpression expr = assembleSetterArgument(binExp.getOperand2(),
+								(ICPPASTFieldReference) cursor.getParent());
+						call.setArguments(new IASTInitializerClause[] { expr });
+
+						rewrite.replace(binExp, call, editGroup);
 					}
-				} else {
-					// Field access is neither a write nor a read? This really shouldn't ever happen
 				}
+
 			}
 		}
 	}
@@ -735,7 +1014,7 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 			 * We just have a variable, an expansion of a simple macro, or a literal value (macro expansion is
 			 * covered under literal)
 			 */
-			return rhs;
+			return rhs.copy(CopyStyle.withoutLocations);
 		}
 
 		if (rhs instanceof ICPPASTFieldReference) {
@@ -747,12 +1026,7 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 			if (rhsFieldReference.getFieldOwnerType().isSameType(originalFieldReference.getFieldOwnerType())) {
 				if (rhsFieldReference.getFieldName().toString()
 						.equals(originalFieldReference.getFieldName().toString())) {
-					System.err.println("Is same name!");
 
-					/*
-					 * This is an assignment like a.foo = a.foo, which is very silly. Generate a getter
-					 * anyways.
-					 */
 					ICPPASTExpression receiver = (ICPPASTExpression) rhsFieldReference.getFieldOwner().copy(
 							CopyStyle.withoutLocations);
 
@@ -762,17 +1036,7 @@ public class EncapsulateFieldRefactoring extends CRefactoring {
 					ICPPASTFunctionCallExpression call = new CPPASTFunctionCallExpression();
 					call.setFunctionNameExpression(newReference);
 					return call;
-				} else {
-					System.err.println("RHS Name: " + rhsFieldReference.getFieldName());
-					System.err.println("Original Name: " + originalFieldReference.getFieldName());
 				}
-			} else {
-				if (rhsFieldReference.getFieldOwnerType() instanceof ProblemType) {
-					ProblemType pbType = (ProblemType) rhsFieldReference.getFieldOwnerType();
-					System.out.println(pbType.getMessage());
-				}
-				System.err.println("RHS Type: " + rhsFieldReference.getFieldOwnerType());
-				System.err.println("Original Type: " + originalFieldReference.getFieldOwnerType());
 			}
 
 			/*

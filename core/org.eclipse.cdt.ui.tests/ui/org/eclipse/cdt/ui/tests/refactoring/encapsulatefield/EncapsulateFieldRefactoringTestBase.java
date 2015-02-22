@@ -21,7 +21,6 @@ public class EncapsulateFieldRefactoringTestBase extends RefactoringTestBase {
 	public static TestSuite suite() {
 		TestSuite suite = new TestSuite();
 		suite.addTestSuite(EncapsulateFieldRefactoringTest.class);
-		suite.addTestSuite(EncapsulateFieldRefactoringTestUnaryOperators.class);
 		return suite;
 	}
 
